@@ -29,11 +29,11 @@ export default function DiscipleshipPage() {
     setDayIdx(0);
   };
 
-  const answerKey = (pi: number, type: string): string =>
+  const answerKey = (pi: number | string, type: string): string =>
     `${weekIdx}-${dayIdx}-${pi}-${type}`;
-  const getAnswer = (pi: number, type: string): string =>
+  const getAnswer = (pi: number | string, type: string): string =>
     answers[answerKey(pi, type)] || '';
-  const setAnswer = (pi: number, type: string, val: string) => {
+  const setAnswer = (pi: number | string, type: string, val: string) => {
     setAnswers((prev) => ({ ...prev, [answerKey(pi, type)]: val }));
   };
 

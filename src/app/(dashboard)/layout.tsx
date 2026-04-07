@@ -1,3 +1,6 @@
+'use client';
+
+import { SessionProvider } from 'next-auth/react';
 import { LangProvider } from '@/context/LangContext';
 import { Sidebar } from '@/components/Sidebar';
 
@@ -7,9 +10,11 @@ export default function DashboardLayout({
   children: React.ReactNode;
 }) {
   return (
-    <LangProvider>
-      <Sidebar />
-      <main className="main-content">{children}</main>
-    </LangProvider>
+    <SessionProvider>
+      <LangProvider>
+        <Sidebar />
+        <main className="main-content">{children}</main>
+      </LangProvider>
+    </SessionProvider>
   );
 }
