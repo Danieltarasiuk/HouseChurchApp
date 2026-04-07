@@ -574,3 +574,58 @@ tr:hover td {
     display: none;
   }
 }
+
+/* Discipleship Module CSS */
+.disc-week-tabs { display: flex; gap: 6px; margin-bottom: 20px; overflow-x: auto; padding-bottom: 4px; }
+.disc-week-tab { padding: 8px 16px; border-radius: var(--radius-full); font-size: 13px; font-weight: 600; border: 1.5px solid var(--border); cursor: pointer; font-family: inherit; transition: all 0.15s; background: var(--surface); color: var(--text-secondary); white-space: nowrap; }
+.disc-week-tab.active { background: var(--accent); color: white; border-color: var(--accent); }
+.disc-week-tab:hover:not(.active) { border-color: var(--accent); color: var(--accent-soft-text); }
+.disc-day-bar { display: flex; gap: 0; background: var(--bg); border-radius: var(--radius-sm); padding: 4px; margin-bottom: 24px; }
+.disc-day-btn { flex: 1; padding: 10px 0; text-align: center; border-radius: 6px; font-size: 13px; font-weight: 700; border: none; cursor: pointer; font-family: inherit; transition: all 0.15s; background: transparent; color: var(--text-tertiary); position: relative; }
+.disc-day-btn.active { background: var(--surface); color: var(--text-primary); box-shadow: var(--shadow-sm); }
+.disc-day-btn:hover:not(.active) { color: var(--text-secondary); }
+.disc-day-btn .disc-day-section-dot { display: block; font-size: 9px; font-weight: 800; letter-spacing: 0.5px; margin-top: 2px; }
+.disc-day-btn.know-day .disc-day-section-dot { color: #1565C0; }
+.disc-day-btn.grow-day .disc-day-section-dot { color: var(--accent-soft-text); }
+.disc-day-btn.active.know-day { border-bottom: 2px solid #2979FF; }
+.disc-day-btn.active.grow-day { border-bottom: 2px solid var(--accent); }
+.disc-section-label { display: inline-flex; align-items: center; gap: 8px; padding: 6px 16px; border-radius: var(--radius-full); font-size: 12px; font-weight: 700; letter-spacing: 0.8px; text-transform: uppercase; margin-bottom: 20px; }
+.disc-section-label.know { background: var(--info-bg); color: #1565C0; }
+.disc-section-label.grow { background: var(--accent-soft); color: var(--accent-soft-text); }
+.disc-concept { background: linear-gradient(135deg, rgba(0,200,83,0.04), rgba(0,200,83,0.08)); border-radius: var(--radius-md); padding: 24px; border: 1px solid rgba(0,200,83,0.15); margin-bottom: 24px; }
+.disc-concept h4 { font-size: 13px; font-weight: 700; color: var(--accent-soft-text); text-transform: uppercase; letter-spacing: 0.8px; margin-bottom: 8px; }
+.disc-concept p { font-size: 14px; line-height: 1.65; color: var(--text-secondary); }
+.disc-passage { background: var(--surface); border-radius: var(--radius-md); border: 1px solid var(--border); padding: 24px; margin-bottom: 12px; border-left: 3px solid var(--accent); }
+.disc-passage.know { border-left-color: #2979FF; }
+.disc-passage-header { display: flex; align-items: center; gap: 10px; margin-bottom: 14px; flex-wrap: wrap; }
+.disc-passage-title { font-size: 16px; font-weight: 700; color: var(--text-primary); }
+.disc-passage-ref { font-size: 13px; font-weight: 600; color: var(--accent-soft-text); background: var(--accent-soft); padding: 4px 12px; border-radius: var(--radius-full); cursor: pointer; transition: all 0.15s; border: none; font-family: inherit; }
+.disc-passage-ref:hover { background: var(--accent); color: white; box-shadow: var(--shadow-sm); }
+.disc-passage-ref.know { color: #1565C0; background: var(--info-bg); }
+.disc-passage-ref.know:hover { background: #2979FF; color: white; }
+.disc-qa { margin-top: 14px; }
+.disc-qa-label { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 6px; padding: 3px 8px; border-radius: 4px; display: inline-block; }
+.disc-qa-label.reflect { color: #1565C0; background: var(--info-bg); }
+.disc-qa-label.apply { color: var(--accent-soft-text); background: var(--accent-soft); }
+.disc-qa-text { font-size: 14px; line-height: 1.55; color: var(--text-secondary); margin-bottom: 8px; }
+.disc-answer { width: 100%; min-height: 72px; padding: 12px 14px; border: 1.5px solid var(--border); border-radius: var(--radius-sm); font-size: 14px; font-family: inherit; color: var(--text-primary); background: var(--surface); transition: all 0.15s; resize: vertical; line-height: 1.5; margin-bottom: 18px; }
+.disc-answer:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+.disc-answer::placeholder { color: var(--text-tertiary); }
+.disc-memory { display: flex; gap: 12px; flex-wrap: wrap; margin-top: 12px; }
+.disc-memory-chip { background: var(--info-bg); color: #1565C0; padding: 6px 14px; border-radius: var(--radius-full); font-size: 13px; font-weight: 600; cursor: pointer; border: none; font-family: inherit; transition: all 0.15s; }
+.disc-memory-chip:hover { background: #2979FF; color: white; box-shadow: var(--shadow-sm); }
+.disc-action { background: linear-gradient(135deg, rgba(41,121,255,0.04), rgba(41,121,255,0.08)); border-radius: var(--radius-md); padding: 20px 24px; border: 1px solid rgba(41,121,255,0.15); margin-top: 24px; }
+.disc-action h4 { font-size: 13px; font-weight: 700; color: #1565C0; text-transform: uppercase; letter-spacing: 0.8px; margin-bottom: 8px; }
+.disc-action p { font-size: 14px; line-height: 1.55; color: var(--text-secondary); white-space: pre-line; }
+
+/* Scripture Verse Modal */
+.verse-overlay { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.5); display: flex; align-items: center; justify-content: center; z-index: 100; padding: 20px; }
+.verse-modal { background: var(--surface); border-radius: var(--radius-lg); width: 100%; max-width: 520px; max-height: 80vh; overflow-y: auto; box-shadow: var(--shadow-lg); }
+.verse-modal-header { display: flex; justify-content: space-between; align-items: center; padding: 20px 24px; border-bottom: 1px solid var(--border); }
+.verse-modal-header h3 { font-size: 18px; font-weight: 700; color: var(--text-primary); }
+.verse-modal-close { background: none; border: none; cursor: pointer; color: var(--text-tertiary); padding: 4px; border-radius: 6px; transition: all 0.15s; display: flex; align-items: center; justify-content: center; }
+.verse-modal-close:hover { background: var(--surface-hover); color: var(--text-primary); }
+.verse-modal-body { padding: 24px; }
+.verse-modal-body p { font-size: 15px; line-height: 1.7; color: var(--text-primary); }
+.verse-loading { color: var(--text-tertiary); font-style: italic; }
+.verse-note { margin-top: 16px; font-size: 12px; color: var(--text-tertiary); font-style: italic; }
