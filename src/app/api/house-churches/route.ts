@@ -14,12 +14,12 @@ export async function GET() {
               hc.location, hc.pco_campus_id, hc.campus_name,
               hc.address_street, hc.address_city, hc.address_state, hc.address_zip,
               hc.pastor_id, hc.host_id, hc.trainee_id,
-              p_user.name AS pastor_name,
+              p_member.first_name || ' ' || p_member.last_name AS pastor_name,
               h_member.first_name || ' ' || h_member.last_name AS host_name,
               t_member.first_name || ' ' || t_member.last_name AS trainee_name,
               (SELECT COUNT(*) FROM members m WHERE m.house_church_id = hc.id AND m.is_active = true)::int AS member_count
        FROM house_churches hc
-       LEFT JOIN users p_user ON hc.pastor_id = p_user.id
+       LEFT JOIN members p_member ON hc.pastor_id = p_member.id
        LEFT JOIN members h_member ON hc.host_id = h_member.id
        LEFT JOIN members t_member ON hc.trainee_id = t_member.id
        WHERE hc.is_active = true
