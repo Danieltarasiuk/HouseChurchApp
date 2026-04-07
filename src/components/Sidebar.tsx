@@ -12,6 +12,7 @@ import {
   Sprout,
   Calendar,
   Heart,
+  Settings,
   LogOut,
   Menu,
   X,
@@ -76,6 +77,12 @@ export function Sidebar() {
       icon: Heart,
       label: t('nav.prayer'),
       testId: 'nav-prayer',
+    },
+    {
+      href: '/settings',
+      icon: Settings,
+      label: t('nav.settings'),
+      testId: 'nav-settings',
     },
   ];
 
