@@ -25,6 +25,7 @@ export default function PrayerPage() {
   const [formDesc, setFormDesc] = useState('');
   const [formVisibility, setFormVisibility] = useState<string>('public');
   const [submitting, setSubmitting] = useState(false);
+  const [formError, setFormError] = useState('');
 
   useEffect(() => {
     fetch('/api/prayer')
@@ -62,6 +63,7 @@ export default function PrayerPage() {
     e.preventDefault();
     if (!formTitle.trim() || submitting) return;
     setSubmitting(true);
+    setFormError('');
 
     try {
       const res = await fetch('/api/prayer', {
@@ -76,7 +78,11 @@ export default function PrayerPage() {
         setFormDesc('');
         setFormVisibility('public');
         setShowForm(false);
+      } else {
+        setFormError(t('pray.submitError'));
       }
+    } catch {
+      setFormError(t('pray.submitError'));
     } finally {
       setSubmitting(false);
     }
@@ -130,6 +136,9 @@ export default function PrayerPage() {
                 <option value="private">{visIcon('private')} {t('pray.privateLabel')}</option>
               </select>
             </div>
+            {formError && (
+              <p style={{ color: 'var(--danger, #dc2626)', fontSize: '13px', marginBottom: '8px' }}>{formError}</p>
+            )}
             <div style={{ display: 'flex', gap: '8px' }}>
               <button type="submit" className="btn btn-primary" disabled={submitting}>
                 {t('pray.submit')}

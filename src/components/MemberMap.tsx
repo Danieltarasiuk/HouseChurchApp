@@ -5,7 +5,7 @@ import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 
 interface MemberPin {
-  id: number;
+  id: string;
   first_name: string;
   last_name: string;
   latitude: number;

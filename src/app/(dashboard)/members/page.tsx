@@ -9,7 +9,7 @@ import { Map as MapIcon, List } from 'lucide-react';
 const MemberMap = dynamic(() => import('@/components/MemberMap'), { ssr: false });
 
 interface Member {
-  id: number;
+  id: string;
   first_name: string;
   last_name: string;
   email: string;

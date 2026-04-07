@@ -102,7 +102,7 @@ export default function DiscipleshipPage() {
       {/* Save Status */}
       {savingState !== 'idle' && (
         <div style={{ fontSize: '13px', color: savingState === 'saving' ? 'var(--text-tertiary)' : 'var(--accent)', marginBottom: '12px' }}>
-          {savingState === 'saving' ? 'Saving...' : 'Saved \u2713'}
+          {savingState === 'saving' ? t('pastoral.saving') : t('pastoral.saved')}
         </div>
       )}
 

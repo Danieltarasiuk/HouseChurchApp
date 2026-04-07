@@ -2,6 +2,12 @@ import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/lib/auth';
 import { sql } from '@/lib/db';
 
+/** Normalize a Postgres DATE value (Date object or ISO string) to 'YYYY-MM-DD' */
+function toDateStr(v: unknown): string {
+  if (v instanceof Date) return v.toISOString().split('T')[0];
+  return String(v).split('T')[0];
+}
+
 export async function GET(req: NextRequest) {
   const session = await auth();
   if (!session?.user?.id) {
@@ -70,11 +76,11 @@ export async function GET(req: NextRequest) {
       memberIds
     );
 
-    // Build last_meetings map
+    // Build last_meetings map (normalize dates to YYYY-MM-DD)
     const meetingMap = new Map<string, Record<string, string>>();
     for (const m of meetings) {
       if (!meetingMap.has(m.member_id)) meetingMap.set(m.member_id, {});
-      meetingMap.get(m.member_id)![m.topic_key] = m.meeting_date;
+      meetingMap.get(m.member_id)![m.topic_key] = toDateStr(m.meeting_date);
     }
 
     // Get last contacted (most recent meeting across all topics)
@@ -87,7 +93,7 @@ export async function GET(req: NextRequest) {
     );
     const lastContactedMap = new Map<string, string>();
     for (const lc of lastContacted) {
-      lastContactedMap.set(lc.member_id, lc.last_date);
+      lastContactedMap.set(lc.member_id, toDateStr(lc.last_date));
     }
 
     // Get flag counts

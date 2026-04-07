@@ -386,7 +386,7 @@ export default function HouseChurchesPage() {
 
             <div style={{ borderTop: '1px solid var(--border)', paddingTop: '16px', marginTop: '8px' }}>
               <label style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '8px', display: 'block' }}>
-                Leadership
+                {t('hc.leadership')}
               </label>
               <div className="form-group">
                 <label>{t('hc.pastor')}</label>

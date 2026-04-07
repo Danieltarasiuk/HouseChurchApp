@@ -44,9 +44,7 @@ export default function ScriptureModal({
       .then((data) => {
         if (cancelled) return;
         if (data.error || !data.text) {
-          const fallback = lang === 'es'
-            ? `Texto no disponible. Por favor busca ${reference} en tu Biblia.`
-            : `Verse text unavailable. Please look up ${reference} in your Bible.`;
+          const fallback = t('scripture.unavailable').replace('{ref}', reference);
           verseCache[cacheKey] = fallback;
           setText(fallback);
         } else {
@@ -56,9 +54,7 @@ export default function ScriptureModal({
       })
       .catch(() => {
         if (cancelled) return;
-        const fallback = lang === 'es'
-          ? `Texto no disponible. Por favor busca ${reference} en tu Biblia.`
-          : `Verse text unavailable. Please look up ${reference} in your Bible.`;
+        const fallback = t('scripture.unavailable').replace('{ref}', reference);
         verseCache[cacheKey] = fallback;
         setText(fallback);
       })

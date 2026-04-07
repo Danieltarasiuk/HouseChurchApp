@@ -5,7 +5,7 @@ import { useSession } from 'next-auth/react';
 import { useLang } from '@/context/LangContext';
 import { PASTORAL_TOPICS } from '@/data/pastoral-topics';
 import ScriptureModal from '@/components/ScriptureModal';
-import { X, Lock, ChevronDown, ChevronRight, Trash2 } from 'lucide-react';
+import { X, Lock, ChevronDown, ChevronRight, Pencil, Trash2 } from 'lucide-react';
 
 /* ---------- Types ---------- */
 interface PastoralMember {
@@ -53,20 +53,48 @@ interface PrayerReq {
   visibility: string;
   created_at: string;
   requester_name: string;
+  member_id?: string;
+  user_id?: string;
+}
+
+interface PastoralNote {
+  id: string;
+  content: string;
+  created_at: string;
+  updated_at: string;
 }
 
 const TOPIC_KEYS = PASTORAL_TOPICS.map(t => t.key);
 
 /* ---------- Helpers ---------- */
+/** Parse a YYYY-MM-DD string into a local Date without timezone shift */
+function parseDate(d: string): Date {
+  const [year, month, day] = d.split('-').map(Number);
+  return new Date(year, month - 1, day);
+}
+
 function formatDate(dateStr: string | null, lang: string): string {
   if (!dateStr) return '';
-  const d = new Date(dateStr + 'T00:00:00');
-  return d.toLocaleDateString(lang === 'es' ? 'es-ES' : 'en-US', { month: 'short', day: 'numeric' });
+  const clean = dateStr.split('T')[0]; // guard against ISO strings
+  return parseDate(clean).toLocaleDateString(
+    lang === 'es' ? 'es-ES' : 'en-US',
+    { month: 'short', day: 'numeric' }
+  );
+}
+
+function formatDateTime(dateStr: string | null, lang: string): string {
+  if (!dateStr) return '';
+  const d = new Date(dateStr);
+  return d.toLocaleDateString(
+    lang === 'es' ? 'es-ES' : 'en-US',
+    { month: 'short', day: 'numeric', year: 'numeric' }
+  );
 }
 
 function daysSince(dateStr: string | null): number {
   if (!dateStr) return Infinity;
-  const d = new Date(dateStr + 'T00:00:00');
+  const clean = dateStr.split('T')[0]; // guard against ISO strings
+  const d = parseDate(clean);
   const now = new Date();
   now.setHours(0, 0, 0, 0);
   return Math.floor((now.getTime() - d.getTime()) / (1000 * 60 * 60 * 24));
@@ -104,21 +132,40 @@ export default function PastoralPage() {
   const [panelFlags, setPanelFlags] = useState<Flag[]>([]);
   const [panelMeetings, setPanelMeetings] = useState<Meeting[]>([]);
   const [panelPrayers, setPanelPrayers] = useState<PrayerReq[]>([]);
+  const [panelNotes, setPanelNotes] = useState<PastoralNote[]>([]);
   const [panelLoading, setPanelLoading] = useState(false);
 
-  // Forms
+  // Meeting form
   const [showMeetingForm, setShowMeetingForm] = useState(false);
   const [meetingTopic, setMeetingTopic] = useState('');
   const [meetingDate, setMeetingDate] = useState(new Date().toISOString().split('T')[0]);
   const [meetingNotes, setMeetingNotes] = useState('');
   const [savingMeeting, setSavingMeeting] = useState(false);
 
+  // Flag form
   const [showFlagForm, setShowFlagForm] = useState(false);
   const [flagColor, setFlagColor] = useState<'yellow' | 'red'>('yellow');
   const [flagDesc, setFlagDesc] = useState('');
   const [savingFlag, setSavingFlag] = useState(false);
 
-  const [expandedNotes, setExpandedNotes] = useState<Set<string>>(new Set());
+  // Prayer form (panel)
+  const [showPrayerForm, setShowPrayerForm] = useState(false);
+  const [prayerTitle, setPrayerTitle] = useState('');
+  const [prayerDesc, setPrayerDesc] = useState('');
+  const [prayerVisibility, setPrayerVisibility] = useState('public');
+  const [savingPrayer, setSavingPrayer] = useState(false);
+  const [prayerError, setPrayerError] = useState('');
+  const [prayerSaved, setPrayerSaved] = useState(false);
+
+  // Notes form
+  const [showNoteForm, setShowNoteForm] = useState(false);
+  const [noteContent, setNoteContent] = useState('');
+  const [savingNote, setSavingNote] = useState(false);
+  const [editingNoteId, setEditingNoteId] = useState<string | null>(null);
+  const [editingNoteContent, setEditingNoteContent] = useState('');
+  const [deletingNoteId, setDeletingNoteId] = useState<string | null>(null);
+
+  const [expandedMeetingNotes, setExpandedMeetingNotes] = useState<Set<string>>(new Set());
   const [expandedTopics, setExpandedTopics] = useState<Set<string>>(new Set(TOPIC_KEYS));
 
   // Load data
@@ -148,27 +195,29 @@ export default function PastoralPage() {
     setPanelLoading(true);
     setShowMeetingForm(false);
     setShowFlagForm(false);
-    setExpandedNotes(new Set());
+    setShowPrayerForm(false);
+    setShowNoteForm(false);
+    setEditingNoteId(null);
+    setDeletingNoteId(null);
+    setExpandedMeetingNotes(new Set());
+    setPrayerSaved(false);
 
     Promise.all([
       fetch(`/api/pastoral/flags?member_id=${member.id}`).then(r => r.json()),
-      fetch('/api/pastoral/meetings').then(r => r.json()),
+      fetch(`/api/pastoral/meetings?member_id=${member.id}`).then(r => r.json()),
       member.user_id
         ? fetch('/api/prayer').then(r => r.json())
         : Promise.resolve({ prayers: [] }),
-    ]).then(([flagData, meetingData, prayerData]) => {
+      fetch(`/api/pastoral/notes?member_id=${member.id}`).then(r => r.json()),
+    ]).then(([flagData, meetingData, prayerData, noteData]) => {
       setPanelFlags(flagData.flags || []);
-      // Filter meetings to this member (from all pastors)
-      // We need all meetings for this member, not just current pastor's
-      // The GET endpoint only returns current pastor's meetings, so let's use them
-      // For a complete view, we'd need a different endpoint, but this works for now
-      const allMeetings = (meetingData.meetings || []).filter((m: Meeting) => m.member_id === member.id);
-      setPanelMeetings(allMeetings);
+      setPanelMeetings(meetingData.meetings || []);
       // Filter prayers for this member
-      const memberPrayers = (prayerData.prayers || []).filter((p: PrayerReq & { member_id?: string; user_id?: string }) =>
+      const memberPrayers = (prayerData.prayers || []).filter((p: PrayerReq) =>
         p.member_id === member.id || (member.user_id && p.user_id === member.user_id)
       );
       setPanelPrayers(memberPrayers);
+      setPanelNotes(noteData.notes || []);
     }).catch(() => {})
       .finally(() => setPanelLoading(false));
   };
@@ -230,6 +279,82 @@ export default function PastoralPage() {
     if (res.ok) {
       setPanelFlags(prev => prev.filter(f => f.id !== flagId));
       loadMembers(hcFilter || undefined);
+    }
+  };
+
+  // Save prayer from panel
+  const savePanelPrayer = async () => {
+    if (!prayerTitle.trim() || !selectedMember) return;
+    setSavingPrayer(true);
+    setPrayerError('');
+    setPrayerSaved(false);
+    try {
+      const res = await fetch('/api/prayer', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          title: prayerTitle,
+          description: prayerDesc,
+          visibility: prayerVisibility,
+          member_id: selectedMember.id,
+        }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setPanelPrayers(prev => [data.prayer, ...prev]);
+        setShowPrayerForm(false);
+        setPrayerTitle('');
+        setPrayerDesc('');
+        setPrayerVisibility('public');
+        setPrayerSaved(true);
+        setTimeout(() => setPrayerSaved(false), 2000);
+      } else {
+        setPrayerError(t('pray.submitError'));
+      }
+    } catch {
+      setPrayerError(t('pray.submitError'));
+    } finally { setSavingPrayer(false); }
+  };
+
+  // Notes CRUD
+  const saveNote = async () => {
+    if (!noteContent.trim() || !selectedMember) return;
+    setSavingNote(true);
+    try {
+      const res = await fetch('/api/pastoral/notes', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ member_id: selectedMember.id, content: noteContent }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setPanelNotes(prev => [data.note, ...prev]);
+        setShowNoteForm(false);
+        setNoteContent('');
+      }
+    } finally { setSavingNote(false); }
+  };
+
+  const updateNote = async (noteId: string) => {
+    if (!editingNoteContent.trim()) return;
+    const res = await fetch(`/api/pastoral/notes/${noteId}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ content: editingNoteContent }),
+    });
+    if (res.ok) {
+      const data = await res.json();
+      setPanelNotes(prev => prev.map(n => n.id === noteId ? data.note : n));
+      setEditingNoteId(null);
+      setEditingNoteContent('');
+    }
+  };
+
+  const deleteNote = async (noteId: string) => {
+    const res = await fetch(`/api/pastoral/notes/${noteId}`, { method: 'DELETE' });
+    if (res.ok) {
+      setPanelNotes(prev => prev.filter(n => n.id !== noteId));
+      setDeletingNoteId(null);
     }
   };
 
@@ -405,10 +530,41 @@ export default function PastoralPage() {
 
                 {/* Prayer Section */}
                 <div style={{ marginBottom: '24px' }}>
-                  <h4>{t('pastoral.prayerRequests')}</h4>
-                  {!selectedMember.user_id ? (
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                    <h4 style={{ margin: 0 }}>{t('pastoral.prayerRequests')}</h4>
+                    <button className="btn btn-ghost" style={{ fontSize: '13px' }} onClick={() => { setShowPrayerForm(!showPrayerForm); setPrayerError(''); }}>
+                      + {t('pastoral.addPrayer')}
+                    </button>
+                  </div>
+
+                  {prayerSaved && (
+                    <p style={{ color: 'var(--accent)', fontSize: '13px', marginBottom: '8px' }}>{t('pastoral.saved')}</p>
+                  )}
+
+                  {showPrayerForm && (
+                    <div style={{ background: 'var(--bg)', padding: '12px', borderRadius: '8px', marginBottom: '8px' }}>
+                      <input className="form-input" style={{ marginBottom: '8px' }} placeholder={t('pray.requestTitle')} value={prayerTitle} onChange={e => setPrayerTitle(e.target.value)} />
+                      <textarea className="form-input" rows={2} style={{ marginBottom: '8px' }} placeholder={t('pray.requestDesc')} value={prayerDesc} onChange={e => setPrayerDesc(e.target.value)} />
+                      <select className="form-select" style={{ marginBottom: '8px' }} value={prayerVisibility} onChange={e => setPrayerVisibility(e.target.value)}>
+                        <option value="public">{'\uD83C\uDF10'} {t('pray.public')}</option>
+                        <option value="house_church">{'\uD83C\uDFE0'} {t('pray.houseChurch')}</option>
+                        <option value="private">{'\uD83D\uDD12'} {t('pray.privateLabel')}</option>
+                      </select>
+                      {prayerError && <p style={{ color: 'var(--danger, #dc2626)', fontSize: '13px', marginBottom: '8px' }}>{prayerError}</p>}
+                      <div style={{ display: 'flex', gap: '8px' }}>
+                        <button className="btn btn-primary" style={{ fontSize: '13px' }} onClick={savePanelPrayer} disabled={savingPrayer || !prayerTitle.trim()}>
+                          {t('pray.submit')}
+                        </button>
+                        <button className="btn btn-ghost" style={{ fontSize: '13px' }} onClick={() => setShowPrayerForm(false)}>
+                          {t('common.cancel')}
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
+                  {!selectedMember.user_id && panelPrayers.length === 0 && !showPrayerForm ? (
                     <p style={{ color: 'var(--text-tertiary)', fontSize: '13px' }}>{t('pastoral.noUserAccount')}</p>
-                  ) : panelPrayers.length === 0 ? (
+                  ) : panelPrayers.length === 0 && !showPrayerForm ? (
                     <p style={{ color: 'var(--text-tertiary)', fontSize: '13px' }}>{t('pastoral.noPrayer')}</p>
                   ) : panelPrayers.map(pr => (
                     <div key={pr.id} style={{ padding: '8px 0', borderBottom: '1px solid var(--border)' }}>
@@ -431,7 +587,7 @@ export default function PastoralPage() {
                 </div>
 
                 {/* Meeting History */}
-                <div>
+                <div style={{ marginBottom: '24px' }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
                     <h4 style={{ margin: 0 }}>{t('pastoral.meetingHistory')}</h4>
                     <button className="btn btn-primary" style={{ fontSize: '13px' }} onClick={() => setShowMeetingForm(!showMeetingForm)}>
@@ -510,7 +666,7 @@ export default function PastoralPage() {
                           </button>
                           {isExpanded && topicMeetings.map(mtg => {
                             const isOwn = mtg.pastor_id === userId;
-                            const showNotes = isOwn && expandedNotes.has(mtg.id);
+                            const showNotes = isOwn && expandedMeetingNotes.has(mtg.id);
                             return (
                               <div key={mtg.id} style={{ paddingLeft: '20px', paddingBottom: '6px', borderLeft: '2px solid var(--border)', marginLeft: '6px', marginBottom: '4px' }}>
                                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -518,7 +674,7 @@ export default function PastoralPage() {
                                     {formatDate(mtg.meeting_date, lang)} &middot; <span style={{ color: 'var(--text-tertiary)' }}>{mtg.pastor_name}</span>
                                   </span>
                                   {isOwn && mtg.notes && (
-                                    <button className="btn btn-ghost" style={{ fontSize: '11px', padding: '2px 6px' }} onClick={() => setExpandedNotes(prev => {
+                                    <button className="btn btn-ghost" style={{ fontSize: '11px', padding: '2px 6px' }} onClick={() => setExpandedMeetingNotes(prev => {
                                       const next = new Set(prev);
                                       if (next.has(mtg.id)) next.delete(mtg.id); else next.add(mtg.id);
                                       return next;
@@ -542,6 +698,83 @@ export default function PastoralPage() {
                       );
                     })
                   )}
+                </div>
+
+                {/* Private Notes Section */}
+                <div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                      <h4 style={{ margin: 0 }}>{t('pastoral.notes')}</h4>
+                      <Lock size={14} style={{ color: 'var(--text-tertiary)' }} />
+                    </div>
+                    <button className="btn btn-ghost" style={{ fontSize: '13px' }} onClick={() => { setShowNoteForm(!showNoteForm); setNoteContent(''); }}>
+                      {t('pastoral.addNote')}
+                    </button>
+                  </div>
+                  <p style={{ fontSize: '11px', color: 'var(--text-tertiary)', marginBottom: '12px' }}>{t('pastoral.notesPrivate')}</p>
+
+                  {showNoteForm && (
+                    <div style={{ background: 'var(--bg)', padding: '12px', borderRadius: '8px', marginBottom: '12px' }}>
+                      <textarea className="form-input" rows={3} placeholder={t('pastoral.notePlaceholder')} value={noteContent} onChange={e => setNoteContent(e.target.value)} />
+                      <div style={{ display: 'flex', gap: '8px', marginTop: '8px' }}>
+                        <button className="btn btn-primary" style={{ fontSize: '13px' }} onClick={saveNote} disabled={savingNote || !noteContent.trim()}>
+                          {t('pastoral.saveNote')}
+                        </button>
+                        <button className="btn btn-ghost" style={{ fontSize: '13px' }} onClick={() => setShowNoteForm(false)}>
+                          {t('common.cancel')}
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
+                  {panelNotes.length === 0 && !showNoteForm ? (
+                    <p style={{ color: 'var(--text-tertiary)', fontSize: '13px' }}>{t('pastoral.noNotes')}</p>
+                  ) : panelNotes.map(note => (
+                    <div key={note.id} style={{ background: 'var(--bg)', padding: '12px', borderRadius: '8px', marginBottom: '8px' }}>
+                      {editingNoteId === note.id ? (
+                        <>
+                          <textarea className="form-input" rows={3} value={editingNoteContent} onChange={e => setEditingNoteContent(e.target.value)} />
+                          <div style={{ display: 'flex', gap: '8px', marginTop: '8px' }}>
+                            <button className="btn btn-primary" style={{ fontSize: '12px' }} onClick={() => updateNote(note.id)} disabled={!editingNoteContent.trim()}>
+                              {t('common.save')}
+                            </button>
+                            <button className="btn btn-ghost" style={{ fontSize: '12px' }} onClick={() => setEditingNoteId(null)}>
+                              {t('common.cancel')}
+                            </button>
+                          </div>
+                        </>
+                      ) : deletingNoteId === note.id ? (
+                        <div>
+                          <p style={{ fontSize: '13px', marginBottom: '8px' }}>{t('pastoral.deleteNoteConfirm')}</p>
+                          <div style={{ display: 'flex', gap: '8px' }}>
+                            <button className="btn btn-primary" style={{ fontSize: '12px', background: 'var(--danger, #dc2626)' }} onClick={() => deleteNote(note.id)}>
+                              {t('common.delete')}
+                            </button>
+                            <button className="btn btn-ghost" style={{ fontSize: '12px' }} onClick={() => setDeletingNoteId(null)}>
+                              {t('common.cancel')}
+                            </button>
+                          </div>
+                        </div>
+                      ) : (
+                        <>
+                          <p style={{ fontSize: '14px', whiteSpace: 'pre-line', margin: '0 0 6px' }}>{note.content}</p>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                            <span style={{ fontSize: '11px', color: 'var(--text-tertiary)' }}>
+                              {formatDateTime(note.updated_at, lang)}
+                            </span>
+                            <div style={{ display: 'flex', gap: '4px' }}>
+                              <button className="btn btn-ghost" style={{ fontSize: '11px', padding: '2px 6px' }} onClick={() => { setEditingNoteId(note.id); setEditingNoteContent(note.content); }}>
+                                <Pencil size={12} />
+                              </button>
+                              <button className="btn btn-ghost" style={{ fontSize: '11px', padding: '2px 6px', color: 'var(--danger, #dc2626)' }} onClick={() => setDeletingNoteId(note.id)}>
+                                <Trash2 size={12} />
+                              </button>
+                            </div>
+                          </div>
+                        </>
+                      )}
+                    </div>
+                  ))}
                 </div>
               </div>
             )}
