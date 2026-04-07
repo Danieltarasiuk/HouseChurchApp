@@ -731,6 +731,12 @@ tr:hover td {
 .hc-card-meta { display: flex; gap: 20px; font-size: 13px; color: var(--text-tertiary); padding-top: 14px; border-top: 1px solid var(--border-light, var(--border)); }
 .hc-card-meta strong { color: var(--text-primary); }
 
+/* Incubator module body */
+.inc-module-body { margin-top: 20px; padding: 18px 20px; background: rgba(255,255,255,0.5); border-radius: var(--radius-md); border: 1px solid rgba(0,0,0,0.07); }
+.inc-body-heading { font-weight: 700; font-size: 0.93rem; margin: 14px 0 5px 0; color: var(--text-primary); text-transform: uppercase; letter-spacing: 0.02em; }
+.inc-body-bullet { padding-left: 12px; color: var(--text-secondary); font-size: 0.9rem; margin: 4px 0; line-height: 1.55; }
+.inc-body-p { color: var(--text-secondary); font-size: 0.9rem; margin: 6px 0; line-height: 1.65; }
+
 /* Button variants (ghost, danger) */
 .btn-ghost { border: none; background: none; color: var(--text-secondary); }
 .btn-ghost:hover { color: var(--text-primary); background: var(--surface-hover); }

@@ -4,6 +4,7 @@ import React, { useState } from 'react';
 import { useLang } from '@/context/LangContext';
 import ScriptureModal from '@/components/ScriptureModal';
 import { INCUBATOR_CURRICULUM, loc } from '@/data/incubator-curriculum';
+import { INCUBATOR_BODIES } from '@/data/incubator-bodies';
 
 const SECTION_COLORS: Record<string, string> = {
   character: '#00C853',
@@ -43,6 +44,10 @@ export default function IncubatorPage() {
   const setAnswer = (mi: number, qi: number, val: string) => {
     setAnswers((prev) => ({ ...prev, [answerKey(mi, qi)]: val }));
   };
+
+  const WEEK_OFFSETS = [0, 4, 8, 13, 22];
+  const getBodyIndex = (wIdx: number, dIdx: number) =>
+    WEEK_OFFSETS[wIdx] + dIdx;
 
   const sectionLabel = (s: string) => {
     switch (s) {
@@ -116,6 +121,27 @@ export default function IncubatorPage() {
               {loc(mod.scripture, lang) as string} ↗
             </button>
           </div>
+
+          {(() => {
+            const bodyEntry = INCUBATOR_BODIES[getBodyIndex(weekIdx, dayIdx)];
+            if (!bodyEntry) return null;
+            const bodyText = lang === 'es' ? bodyEntry.es : bodyEntry.en;
+            return (
+              <div className="inc-module-body">
+                {bodyText.split('\n').map((line, li) => {
+                  const trimmed = line.trim();
+                  if (!trimmed) return <div key={li} style={{ height: 8 }} />;
+                  if (/^[0-9]+\.\s/.test(trimmed) || /^[A-ZÁÉÍÓÚÑ]{3,}/.test(trimmed)) {
+                    return <h4 key={li} className="inc-body-heading">{trimmed}</h4>;
+                  }
+                  if (trimmed.startsWith('●') || trimmed.startsWith('•')) {
+                    return <p key={li} className="inc-body-bullet">{trimmed}</p>;
+                  }
+                  return <p key={li} className="inc-body-p">{trimmed}</p>;
+                })}
+              </div>
+            );
+          })()}
 
           {/* Key Verses */}
           <div style={{ marginTop: 16 }}>
