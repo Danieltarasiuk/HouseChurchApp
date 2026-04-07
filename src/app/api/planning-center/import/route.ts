@@ -98,10 +98,12 @@ async function fetchCampuses(token: string): Promise<Map<string, string>> {
   return campusMap;
 }
 
-async function fetchAllPeople(token: string): Promise<SyncedPerson[]> {
-  const people: SyncedPerson[] = [];
+async function fetchAllPeople(token: string): Promise<{ active: SyncedPerson[]; skippedInactive: number }> {
+  const active: SyncedPerson[] = [];
+  let skippedInactive = 0;
+  // Filter to active profiles only via PCO API
   let nextUrl: string | null =
-    'https://api.planningcenteronline.com/people/v2/people?per_page=100&include=emails,phone_numbers,addresses';
+    'https://api.planningcenteronline.com/people/v2/people?per_page=100&include=emails,phone_numbers,addresses&where[status]=active';
 
   while (nextUrl) {
     const res: Response = await fetch(nextUrl, {
@@ -142,6 +144,12 @@ async function fetchAllPeople(token: string): Promise<SyncedPerson[]> {
     }
 
     for (const person of data.data as PcoPerson[]) {
+      // Secondary check: skip any non-active person that slipped through
+      if (person.attributes.status && person.attributes.status !== 'active') {
+        skippedInactive++;
+        continue;
+      }
+
       const email = emailMap.get(person.id) || '';
       const phone = phoneMap.get(person.id) || '';
       const addr = addressMap.get(person.id);
@@ -151,7 +159,7 @@ async function fetchAllPeople(token: string): Promise<SyncedPerson[]> {
       const rawGender = person.attributes.gender;
       const gender = rawGender === 'M' ? 'Male' : rawGender === 'F' ? 'Female' : null;
 
-      people.push({
+      active.push({
         pco_id: person.id,
         first_name: person.attributes.first_name,
         last_name: person.attributes.last_name,
@@ -170,7 +178,7 @@ async function fetchAllPeople(token: string): Promise<SyncedPerson[]> {
     nextUrl = data.links?.next || null;
   }
 
-  return people;
+  return { active, skippedInactive };
 }
 
 export async function POST() {
@@ -190,14 +198,15 @@ export async function POST() {
       return NextResponse.json({ error: 'Planning Center not connected. Please connect first.' }, { status: 400 });
     }
 
-    // 1. Fetch campuses and people from PCO
-    const [pcoCampuses, people] = await Promise.all([
+    // 1. Fetch campuses and active people from PCO
+    const [pcoCampuses, peopleResult] = await Promise.all([
       fetchCampuses(token),
       fetchAllPeople(token),
     ]);
+    const { active: people, skippedInactive } = peopleResult;
 
     // 2. Sync campuses → house_churches
-    const campusToHcId = new Map<string, number>();
+    const campusToHcId = new Map<string, string>();
 
     for (const [pcoId, campusName] of pcoCampuses) {
       const existing = await sql(
@@ -223,12 +232,13 @@ export async function POST() {
 
     // 3. Sync people → members
     let imported = 0;
-    let skipped = 0;
+    const skipped = skippedInactive;
     let archived = 0;
     const syncedPcoIds: string[] = [];
 
     for (const person of people) {
       syncedPcoIds.push(person.pco_id);
+      // Resolve house church from PCO campus — null if person has no campus
       const hcId = person.campus_pco_id ? (campusToHcId.get(person.campus_pco_id) || null) : null;
 
       const result = await sql(
@@ -242,14 +252,14 @@ export async function POST() {
            last_name = EXCLUDED.last_name,
            email = COALESCE(NULLIF(EXCLUDED.email, ''), members.email),
            phone = COALESCE(NULLIF(EXCLUDED.phone, ''), members.phone),
-           house_church_id = COALESCE(EXCLUDED.house_church_id, members.house_church_id),
+           house_church_id = EXCLUDED.house_church_id,
            gender = COALESCE(EXCLUDED.gender, members.gender),
            date_of_birth = COALESCE(EXCLUDED.date_of_birth, members.date_of_birth),
            address_street = COALESCE(NULLIF(EXCLUDED.address_street, ''), members.address_street),
            address_city = COALESCE(NULLIF(EXCLUDED.address_city, ''), members.address_city),
            address_state = COALESCE(NULLIF(EXCLUDED.address_state, ''), members.address_state),
            address_zip = COALESCE(NULLIF(EXCLUDED.address_zip, ''), members.address_zip),
-           campus_pco_id = COALESCE(EXCLUDED.campus_pco_id, members.campus_pco_id),
+           campus_pco_id = EXCLUDED.campus_pco_id,
            is_active = true
          RETURNING id`,
         [
@@ -265,7 +275,9 @@ export async function POST() {
       if (result.length > 0) imported++;
     }
 
-    // 4. Archive members that are no longer in PCO (only those with a pco_id)
+    // 4. Deactivate members whose PCO ID is no longer in the active results
+    //    (they were removed or marked inactive in PCO)
+    //    Only affects PCO-synced members — manually added members (pco_id IS NULL) are untouched
     if (syncedPcoIds.length > 0) {
       const placeholders = syncedPcoIds.map((_, i) => `$${i + 1}`).join(',');
       const archivedResult = await sql(

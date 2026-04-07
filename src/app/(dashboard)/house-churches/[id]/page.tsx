@@ -1,10 +1,11 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { useSession } from 'next-auth/react';
 import { useLang } from '@/context/LangContext';
 import { ArrowLeft, Pencil } from 'lucide-react';
+import HouseChurchModal from '@/components/HouseChurchModal';
 
 interface HouseChurch {
   id: string;
@@ -13,11 +14,15 @@ interface HouseChurch {
   meeting_day: string | null;
   meeting_time: string | null;
   location: string | null;
+  pco_campus_id: string | null;
   campus_name: string | null;
   address_street: string | null;
   address_city: string | null;
   address_state: string | null;
   address_zip: string | null;
+  pastor_id: string | null;
+  host_id: string | null;
+  trainee_id: string | null;
   pastor_name: string | null;
   host_name: string | null;
   trainee_name: string | null;
@@ -38,6 +43,12 @@ interface Member {
   address_state: string | null;
   address_zip: string | null;
   house_church_id: string | null;
+}
+
+interface Campus {
+  pco_campus_id: string;
+  campus_name: string;
+  member_count: number;
 }
 
 const roleLabel = (role: string, t: (k: string) => string) => {
@@ -95,10 +106,13 @@ export default function HouseChurchDetailPage() {
   const isAdmin = userRole === 'admin';
 
   const [church, setChurch] = useState<HouseChurch | null>(null);
-  const [members, setMembers] = useState<Member[]>([]);
+  const [allMembers, setAllMembers] = useState<Member[]>([]);
+  const [campuses, setCampuses] = useState<Campus[]>([]);
+  const [hcMembers, setHcMembers] = useState<Member[]>([]);
   const [loading, setLoading] = useState(true);
+  const [showEditModal, setShowEditModal] = useState(false);
 
-  useEffect(() => {
+  const loadData = useCallback(() => {
     Promise.all([
       fetch('/api/house-churches').then((r) => r.json()),
       fetch('/api/members').then((r) => r.json()),
@@ -106,12 +120,16 @@ export default function HouseChurchDetailPage() {
       .then(([hcData, memData]) => {
         const found = (hcData.churches || []).find((c: HouseChurch) => String(c.id) === hcId);
         setChurch(found || null);
-        const allMembers: Member[] = memData.members || [];
-        setMembers(allMembers.filter((m) => String(m.house_church_id) === hcId));
+        setCampuses(hcData.campuses || []);
+        const members: Member[] = memData.members || [];
+        setAllMembers(members);
+        setHcMembers(members.filter((m) => String(m.house_church_id) === hcId));
       })
       .catch(() => {})
       .finally(() => setLoading(false));
   }, [hcId]);
+
+  useEffect(() => { loadData(); }, [loadData]);
 
   const formatAddress = (hc: HouseChurch) => {
     const parts = [hc.address_street, hc.address_city, hc.address_state, hc.address_zip].filter(Boolean);
@@ -155,7 +173,7 @@ export default function HouseChurchDetailPage() {
           <ArrowLeft size={16} /> {t('hc.back')}
         </button>
         {isAdmin && (
-          <button className="btn btn-secondary" onClick={() => router.push('/house-churches')}>
+          <button className="btn btn-secondary" onClick={() => setShowEditModal(true)}>
             <Pencil size={14} /> {t('common.edit')}
           </button>
         )}
@@ -195,7 +213,7 @@ export default function HouseChurchDetailPage() {
       <div className="card" style={{ marginTop: '20px' }}>
         <div className="card-header">
           <h3 className="card-title">
-            {t('hc.members')} ({members.length})
+            {t('hc.members')} ({hcMembers.length})
           </h3>
         </div>
 
@@ -213,14 +231,14 @@ export default function HouseChurchDetailPage() {
               </tr>
             </thead>
             <tbody>
-              {members.length === 0 ? (
+              {hcMembers.length === 0 ? (
                 <tr>
                   <td colSpan={7} style={{ textAlign: 'center', color: 'var(--text-tertiary)', padding: '24px' }}>
                     {t('hc.noMembers')}
                   </td>
                 </tr>
               ) : (
-                members.map((m) => {
+                hcMembers.map((m) => {
                   const age = m.date_of_birth ? calcAge(m.date_of_birth) : null;
                   const bday = m.date_of_birth ? formatBirthday(m.date_of_birth, language) : '—';
                   const mAddr = formatMemberAddress(m);
@@ -255,6 +273,20 @@ export default function HouseChurchDetailPage() {
           </table>
         </div>
       </div>
+
+      {/* Edit Modal */}
+      {showEditModal && (
+        <HouseChurchModal
+          houseChurch={church}
+          members={allMembers}
+          campuses={campuses}
+          onClose={() => setShowEditModal(false)}
+          onSaved={() => {
+            setShowEditModal(false);
+            loadData();
+          }}
+        />
+      )}
     </div>
   );
 }
