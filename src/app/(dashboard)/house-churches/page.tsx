@@ -41,6 +41,7 @@ interface Member {
 interface Campus {
   pco_campus_id: string;
   campus_name: string;
+  member_count: number;
 }
 
 interface FormData {
@@ -339,7 +340,7 @@ export default function HouseChurchesPage() {
                 }}>
                   <option value="">—</option>
                   {campuses.map((c) => (
-                    <option key={c.pco_campus_id} value={c.campus_name}>{c.campus_name}</option>
+                    <option key={c.pco_campus_id} value={c.campus_name}>{c.campus_name} ({c.member_count} {t('hc.members')})</option>
                   ))}
                 </select>
               </div>

@@ -26,12 +26,15 @@ export async function GET() {
        ORDER BY hc.campus_name NULLS LAST, hc.name`
     );
 
-    // Get distinct campuses for grouping
+    // Get distinct campuses with member counts
     const campuses = await sql(
-      `SELECT DISTINCT pco_campus_id, campus_name
-       FROM house_churches
-       WHERE is_active = true AND pco_campus_id IS NOT NULL
-       ORDER BY campus_name`
+      `SELECT hc.pco_campus_id, hc.campus_name,
+              COUNT(DISTINCT m.id)::int AS member_count
+       FROM house_churches hc
+       LEFT JOIN members m ON m.campus_pco_id = hc.pco_campus_id AND m.is_active = true
+       WHERE hc.is_active = true AND hc.pco_campus_id IS NOT NULL
+       GROUP BY hc.pco_campus_id, hc.campus_name
+       ORDER BY hc.campus_name`
     );
 
     return NextResponse.json({ churches, campuses });
@@ -77,7 +80,20 @@ export async function POST(req: NextRequest) {
       ]
     );
 
-    return NextResponse.json({ id: result[0].id });
+    const newHcId = result[0].id;
+
+    // Auto-assign members from selected campus to this house church
+    if (pco_campus_id) {
+      await sql(
+        `UPDATE members SET house_church_id = $1
+         WHERE campus_pco_id = $2 AND is_active = true AND (house_church_id IS NULL OR house_church_id IN (
+           SELECT id FROM house_churches WHERE pco_campus_id = $3
+         ))`,
+        [newHcId, pco_campus_id, pco_campus_id]
+      );
+    }
+
+    return NextResponse.json({ id: newHcId });
   } catch (error) {
     console.error('Create house church error:', error);
     return NextResponse.json({ error: 'Failed to create house church' }, { status: 500 });

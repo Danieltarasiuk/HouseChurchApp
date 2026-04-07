@@ -224,8 +224,8 @@ export async function POST() {
       const result = await sql(
         `INSERT INTO members (first_name, last_name, email, phone, house_church_id,
                               address_street, address_city, address_state, address_zip,
-                              pco_id, is_active)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, true)
+                              pco_id, campus_pco_id, is_active)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, true)
          ON CONFLICT (pco_id) DO UPDATE SET
            first_name = EXCLUDED.first_name,
            last_name = EXCLUDED.last_name,
@@ -236,6 +236,7 @@ export async function POST() {
            address_city = COALESCE(NULLIF(EXCLUDED.address_city, ''), members.address_city),
            address_state = COALESCE(NULLIF(EXCLUDED.address_state, ''), members.address_state),
            address_zip = COALESCE(NULLIF(EXCLUDED.address_zip, ''), members.address_zip),
+           campus_pco_id = COALESCE(EXCLUDED.campus_pco_id, members.campus_pco_id),
            is_active = true
          RETURNING id`,
         [
@@ -243,7 +244,7 @@ export async function POST() {
           person.phone || null, hcId,
           person.address_street || null, person.address_city || null,
           person.address_state || null, person.address_zip || null,
-          person.pco_id,
+          person.pco_id, person.campus_pco_id || null,
         ]
       );
 
