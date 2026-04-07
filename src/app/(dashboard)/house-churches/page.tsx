@@ -1,22 +1,72 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useLang } from '@/context/LangContext';
-import { MOCK_CHURCHES, MOCK_MEMBERS, HouseChurch } from '@/data/mock-data';
 
-const loc = (obj: { en: string; es: string }, lang: string) =>
-  obj[lang as 'en' | 'es'] || obj.en;
+interface HouseChurch {
+  id: number;
+  name: string;
+  description: string;
+  meeting_day: string;
+  meeting_time: string;
+  location: string;
+  pastor_name: string;
+  member_count: number;
+}
 
-const roleLabel = (role: string, t: (k: string) => string) =>
-  t('role.' + role) || role.replace(/_/g, ' ');
+interface Member {
+  id: number;
+  first_name: string;
+  last_name: string;
+  email: string;
+  phone: string | null;
+  role: string;
+  house_church_id: number | null;
+  house_church_name: string | null;
+}
+
+const roleLabel = (role: string, t: (k: string) => string) => {
+  const translated = t('role.' + role);
+  return translated.startsWith('role.') ? role.replace(/_/g, ' ') : translated;
+};
 
 export default function HouseChurchesPage() {
-  const { t, language } = useLang();
+  const { t } = useLang();
+  const [churches, setChurches] = useState<HouseChurch[]>([]);
+  const [members, setMembers] = useState<Member[]>([]);
   const [selected, setSelected] = useState<HouseChurch | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    Promise.all([
+      fetch('/api/house-churches').then((r) => r.json()),
+      fetch('/api/members').then((r) => r.json()),
+    ])
+      .then(([hcData, memData]) => {
+        setChurches(hcData.churches || []);
+        setMembers(memData.members || []);
+      })
+      .catch(() => {})
+      .finally(() => setLoading(false));
+  }, []);
 
   const membersForChurch = selected
-    ? MOCK_MEMBERS.filter((m) => m.house_church_id === selected.id)
+    ? members.filter((m) => m.house_church_id === selected.id)
     : [];
+
+  if (loading) {
+    return (
+      <div>
+        <div className="page-header">
+          <h2>{t('hc.title')}</h2>
+          <p>{t('hc.sub')}</p>
+        </div>
+        <div style={{ padding: '40px', textAlign: 'center', color: 'var(--text-tertiary)' }}>
+          {t('dashboard.loading')}
+        </div>
+      </div>
+    );
+  }
 
   /* ---------- Detail view ---------- */
   if (selected) {
@@ -33,19 +83,25 @@ export default function HouseChurchesPage() {
             <h2 className="card-title">{selected.name}</h2>
           </div>
 
-          <p>{loc(selected.description, language)}</p>
+          {selected.description && <p style={{ padding: '0 24px' }}>{selected.description}</p>}
 
-          <div className="hc-card-meta" style={{ marginTop: '12px' }}>
-            <span>
-              <strong>{t('hc.meetingTime')}:</strong>{' '}
-              {loc(selected.meeting_day, language)} @ {selected.meeting_time}
-            </span>
-            <span>
-              <strong>{t('hc.location')}:</strong> {selected.location}
-            </span>
-            <span>
-              <strong>{t('hc.pastor')}:</strong> {selected.pastor_name}
-            </span>
+          <div className="hc-card-meta" style={{ margin: '12px 24px' }}>
+            {selected.meeting_day && (
+              <span>
+                <strong>{t('hc.meetingTime')}:</strong>{' '}
+                {selected.meeting_day} @ {selected.meeting_time}
+              </span>
+            )}
+            {selected.location && (
+              <span>
+                <strong>{t('hc.location')}:</strong> {selected.location}
+              </span>
+            )}
+            {selected.pastor_name && (
+              <span>
+                <strong>{t('hc.pastor')}:</strong> {selected.pastor_name}
+              </span>
+            )}
           </div>
         </div>
 
@@ -67,26 +123,26 @@ export default function HouseChurchesPage() {
                 </tr>
               </thead>
               <tbody>
-                {membersForChurch.map((m) => (
-                  <tr key={m.id}>
-                    <td>
-                      {m.first_name} {m.last_name}
-                    </td>
-                    <td>{m.email}</td>
-                    <td>{m.phone || '—'}</td>
-                    <td>
-                      <span
-                        className={`badge ${
-                          m.role === 'house_church_pastor'
-                            ? 'badge-pastor'
-                            : 'badge-member'
-                        }`}
-                      >
-                        {roleLabel(m.role, t)}
-                      </span>
+                {membersForChurch.length === 0 ? (
+                  <tr>
+                    <td colSpan={4} style={{ textAlign: 'center', color: 'var(--text-tertiary)', padding: '24px' }}>
+                      {t('common.noResults')}
                     </td>
                   </tr>
-                ))}
+                ) : (
+                  membersForChurch.map((m) => (
+                    <tr key={m.id}>
+                      <td>{m.first_name} {m.last_name}</td>
+                      <td>{m.email}</td>
+                      <td>{m.phone || '—'}</td>
+                      <td>
+                        <span className={`badge ${m.role === 'house_church_pastor' ? 'badge-pastor' : 'badge-member'}`}>
+                          {roleLabel(m.role, t)}
+                        </span>
+                      </td>
+                    </tr>
+                  ))
+                )}
               </tbody>
             </table>
           </div>
@@ -103,36 +159,46 @@ export default function HouseChurchesPage() {
         <p>{t('hc.sub')}</p>
       </div>
 
-      <div className="hc-grid">
-        {MOCK_CHURCHES.map((church) => (
-          <div
-            key={church.id}
-            className="hc-card"
-            role="button"
-            tabIndex={0}
-            onClick={() => setSelected(church)}
-            onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setSelected(church); } }}
-          >
-            <div className="hc-card-top">
-              <h3>{church.name}</h3>
-              <span className="badge badge-member">
-                {church.member_count} {t('hc.members')}
-              </span>
-            </div>
+      {churches.length === 0 ? (
+        <div className="card" style={{ padding: '40px', textAlign: 'center' }}>
+          <p style={{ color: 'var(--text-tertiary)' }}>{t('common.noResults')}</p>
+        </div>
+      ) : (
+        <div className="hc-grid">
+          {churches.map((church) => (
+            <div
+              key={church.id}
+              className="hc-card"
+              role="button"
+              tabIndex={0}
+              onClick={() => setSelected(church)}
+              onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setSelected(church); } }}
+            >
+              <div className="hc-card-top">
+                <h3>{church.name}</h3>
+                <span className="badge badge-member">
+                  {church.member_count} {t('hc.members')}
+                </span>
+              </div>
 
-            <p>{loc(church.description, language)}</p>
+              {church.description && <p>{church.description}</p>}
 
-            <div className="hc-card-meta">
-              <span>
-                <strong>{t('hc.pastor')}:</strong> {church.pastor_name}
-              </span>
-              <span>
-                {loc(church.meeting_day, language)} @ {church.meeting_time}
-              </span>
+              <div className="hc-card-meta">
+                {church.pastor_name && (
+                  <span>
+                    <strong>{t('hc.pastor')}:</strong> {church.pastor_name}
+                  </span>
+                )}
+                {church.meeting_day && (
+                  <span>
+                    {church.meeting_day} @ {church.meeting_time}
+                  </span>
+                )}
+              </div>
             </div>
-          </div>
-        ))}
-      </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

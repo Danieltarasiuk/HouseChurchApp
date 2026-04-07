@@ -1,51 +1,77 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useLang } from '@/context/LangContext';
-import { MOCK_PRAYERS, PrayerRequest } from '@/data/mock-data';
 
-const loc = (obj: { en: string; es: string }, lang: string) =>
-  obj[lang as 'en' | 'es'] || obj.en;
+interface PrayerRequest {
+  id: number;
+  title: string;
+  description: string;
+  status: 'active' | 'answered';
+  is_private: number;
+  created_at: string;
+  user_id: number;
+  requester_name: string;
+}
 
 export default function PrayerPage() {
-  const { t, language } = useLang();
+  const { t } = useLang();
   const [tab, setTab] = useState<'active' | 'answered'>('active');
-  const [prayers, setPrayers] = useState<PrayerRequest[]>(MOCK_PRAYERS);
+  const [prayers, setPrayers] = useState<PrayerRequest[]>([]);
+  const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
   const [formTitle, setFormTitle] = useState('');
   const [formDesc, setFormDesc] = useState('');
   const [formPrivate, setFormPrivate] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+
+  useEffect(() => {
+    fetch('/api/prayer')
+      .then((res) => res.json())
+      .then((data) => setPrayers(data.prayers || []))
+      .catch(() => {})
+      .finally(() => setLoading(false));
+  }, []);
 
   const active = prayers.filter((p) => p.status === 'active');
   const answered = prayers.filter((p) => p.status === 'answered');
   const displayed = tab === 'active' ? active : answered;
 
-  function handleMarkAnswered(id: number) {
-    setPrayers((prev) =>
-      prev.map((p) => (p.id === id ? { ...p, status: 'answered' as const } : p))
-    );
+  async function handleMarkAnswered(id: number) {
+    const res = await fetch('/api/prayer', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id, status: 'answered' }),
+    });
+    if (res.ok) {
+      setPrayers((prev) =>
+        prev.map((p) => (p.id === id ? { ...p, status: 'answered' as const } : p))
+      );
+    }
   }
 
-  function handleSubmit(e: React.FormEvent) {
+  async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    if (!formTitle.trim()) return;
-    const newRequest: PrayerRequest = {
-      id: Date.now(),
-      title: { en: formTitle, es: formTitle },
-      description: { en: formDesc, es: formDesc },
-      first_name: t('sidebar.user'),
-      last_name: '',
-      house_church_name: '',
-      status: 'active',
-      is_private: formPrivate ? 1 : 0,
-      created_at: new Date().toISOString().slice(0, 10),
-      user_id: 0,
-    };
-    setPrayers((prev) => [newRequest, ...prev]);
-    setFormTitle('');
-    setFormDesc('');
-    setFormPrivate(false);
-    setShowForm(false);
+    if (!formTitle.trim() || submitting) return;
+    setSubmitting(true);
+
+    try {
+      const res = await fetch('/api/prayer', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ title: formTitle, description: formDesc, is_private: formPrivate }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setPrayers((prev) => [data.prayer, ...prev]);
+        setFormTitle('');
+        setFormDesc('');
+        setFormPrivate(false);
+        setShowForm(false);
+      }
+    } finally {
+      setSubmitting(false);
+    }
   }
 
   return (
@@ -55,7 +81,6 @@ export default function PrayerPage() {
         <p>{t('pray.sub')}</p>
       </div>
 
-      {/* Toolbar: tabs + new request button */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
         <div style={{ display: 'flex', gap: '8px' }}>
           <button
@@ -76,7 +101,6 @@ export default function PrayerPage() {
         </button>
       </div>
 
-      {/* Inline new request form */}
       {showForm && (
         <div className="card" style={{ padding: '20px', marginBottom: '16px' }}>
           <form onSubmit={handleSubmit}>
@@ -110,7 +134,7 @@ export default function PrayerPage() {
               <label htmlFor="private-check">{t('pray.private')}</label>
             </div>
             <div style={{ display: 'flex', gap: '8px' }}>
-              <button type="submit" className="btn btn-primary">
+              <button type="submit" className="btn btn-primary" disabled={submitting}>
                 {t('pray.submit')}
               </button>
               <button type="button" className="btn btn-ghost" onClick={() => setShowForm(false)}>
@@ -121,8 +145,11 @@ export default function PrayerPage() {
         </div>
       )}
 
-      {/* Prayer cards */}
-      {displayed.length === 0 ? (
+      {loading ? (
+        <div style={{ padding: '40px', textAlign: 'center', color: 'var(--text-tertiary)' }}>
+          {t('dashboard.loading')}
+        </div>
+      ) : displayed.length === 0 ? (
         <div className="card" style={{ padding: '40px', textAlign: 'center' }}>
           <p style={{ color: 'var(--text-tertiary)' }}>{t('pray.noRequests')}</p>
         </div>
@@ -131,11 +158,10 @@ export default function PrayerPage() {
           <div className="card" key={prayer.id} style={{ padding: '20px', marginBottom: '12px' }}>
             <div className="card-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
               <div>
-                <h3 className="card-title">{loc(prayer.title, language)}</h3>
+                <h3 className="card-title">{prayer.title}</h3>
                 <p style={{ fontSize: '13px', color: 'var(--text-tertiary)', margin: '4px 0' }}>
-                  {prayer.first_name} {prayer.last_name}
-                  {prayer.house_church_name && <> &middot; {prayer.house_church_name}</>}
-                  {' '}&middot; {prayer.created_at}
+                  {prayer.requester_name || t('dashboard.anonymous')}
+                  {' '}&middot; {new Date(prayer.created_at).toLocaleDateString()}
                 </p>
               </div>
               <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
@@ -149,9 +175,11 @@ export default function PrayerPage() {
                 </span>
               </div>
             </div>
-            <p style={{ marginTop: '8px', color: 'var(--text-secondary)' }}>
-              {loc(prayer.description, language)}
-            </p>
+            {prayer.description && (
+              <p style={{ marginTop: '8px', color: 'var(--text-secondary)' }}>
+                {prayer.description}
+              </p>
+            )}
             {prayer.status === 'active' && (
               <div style={{ marginTop: '12px' }}>
                 <button className="btn btn-ghost" onClick={() => handleMarkAnswered(prayer.id)}>

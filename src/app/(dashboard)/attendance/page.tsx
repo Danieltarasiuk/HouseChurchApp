@@ -1,15 +1,13 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useLang } from '@/context/LangContext';
-import { MOCK_MEMBERS } from '@/data/mock-data';
 
-function buildInitialAttendance(): Record<number, boolean> {
-  const record: Record<number, boolean> = {};
-  MOCK_MEMBERS.forEach((m) => {
-    record[m.id] = false;
-  });
-  return record;
+interface Member {
+  id: number;
+  first_name: string;
+  last_name: string;
+  house_church_name: string | null;
 }
 
 export default function AttendancePage() {
@@ -18,10 +16,26 @@ export default function AttendancePage() {
   const today = new Date().toISOString().split('T')[0];
   const [eventType, setEventType] = useState('sunday_service');
   const [date, setDate] = useState(today);
-  const [attendance, setAttendance] = useState<Record<number, boolean>>(buildInitialAttendance);
+  const [members, setMembers] = useState<Member[]>([]);
+  const [attendance, setAttendance] = useState<Record<number, boolean>>({});
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    fetch('/api/members')
+      .then((res) => res.json())
+      .then((data) => {
+        const mems = data.members || [];
+        setMembers(mems);
+        const initial: Record<number, boolean> = {};
+        mems.forEach((m: Member) => { initial[m.id] = false; });
+        setAttendance(initial);
+      })
+      .catch(() => {})
+      .finally(() => setLoading(false));
+  }, []);
 
   const presentCount = Object.values(attendance).filter(Boolean).length;
-  const totalCount = MOCK_MEMBERS.length;
+  const totalCount = members.length;
 
   const toggleMember = (id: number) => {
     setAttendance((prev) => ({ ...prev, [id]: !prev[id] }));
@@ -34,15 +48,20 @@ export default function AttendancePage() {
     alert(msg);
   };
 
-  // Reset attendance when event type or date changes
+  const resetAttendance = () => {
+    const initial: Record<number, boolean> = {};
+    members.forEach((m) => { initial[m.id] = false; });
+    setAttendance(initial);
+  };
+
   const handleEventTypeChange = (value: string) => {
     setEventType(value);
-    setAttendance(buildInitialAttendance());
+    resetAttendance();
   };
 
   const handleDateChange = (value: string) => {
     setDate(value);
-    setAttendance(buildInitialAttendance());
+    resetAttendance();
   };
 
   return (
@@ -90,39 +109,49 @@ export default function AttendancePage() {
           <span>{t('att.present')}: {presentCount} / {totalCount}</span>
         </div>
 
-        <div style={{ padding: '8px 16px' }}>
-          {MOCK_MEMBERS.map((member) => (
-            <label
-              key={member.id}
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: '12px',
-                padding: '10px 0',
-                borderBottom: '1px solid var(--border)',
-                cursor: 'pointer',
-              }}
-            >
-              <input
-                type="checkbox"
-                checked={attendance[member.id] ?? false}
-                onChange={() => toggleMember(member.id)}
-                style={{ width: '18px', height: '18px', accentColor: 'var(--primary)' }}
-              />
-              <span>
-                {member.first_name} {member.last_name}
-                {member.house_church_name && (
-                  <span style={{ color: 'var(--text-tertiary)', marginLeft: '8px', fontSize: '13px' }}>
-                    — {member.house_church_name}
-                  </span>
-                )}
-              </span>
-            </label>
-          ))}
-        </div>
+        {loading ? (
+          <div style={{ padding: '40px', textAlign: 'center', color: 'var(--text-tertiary)' }}>
+            {t('dashboard.loading')}
+          </div>
+        ) : members.length === 0 ? (
+          <div style={{ padding: '40px', textAlign: 'center', color: 'var(--text-tertiary)' }}>
+            {t('common.noResults')}
+          </div>
+        ) : (
+          <div style={{ padding: '8px 16px' }}>
+            {members.map((member) => (
+              <label
+                key={member.id}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '12px',
+                  padding: '10px 0',
+                  borderBottom: '1px solid var(--border)',
+                  cursor: 'pointer',
+                }}
+              >
+                <input
+                  type="checkbox"
+                  checked={attendance[member.id] ?? false}
+                  onChange={() => toggleMember(member.id)}
+                  style={{ width: '18px', height: '18px', accentColor: 'var(--primary)' }}
+                />
+                <span>
+                  {member.first_name} {member.last_name}
+                  {member.house_church_name && (
+                    <span style={{ color: 'var(--text-tertiary)', marginLeft: '8px', fontSize: '13px' }}>
+                      — {member.house_church_name}
+                    </span>
+                  )}
+                </span>
+              </label>
+            ))}
+          </div>
+        )}
 
         <div style={{ padding: '16px', borderTop: '1px solid var(--border)' }}>
-          <button className="btn btn-primary" onClick={handleSave}>
+          <button className="btn btn-primary" onClick={handleSave} disabled={members.length === 0}>
             {t('att.save')}
           </button>
         </div>
