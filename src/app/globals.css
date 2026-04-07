@@ -759,6 +759,35 @@ tr:hover td {
 .prayer-tab { padding: 8px 20px; border-radius: var(--radius-full); font-size: 13px; font-weight: 600; border: 1px solid var(--border); background: var(--surface); color: var(--text-secondary); cursor: pointer; transition: all 0.15s; }
 .prayer-tab.active { background: var(--accent); color: white; border-color: var(--accent); }
 
+/* Pastoral Care */
+.pastoral-grid-wrap { overflow-x: auto; margin-bottom: 16px; }
+.pastoral-grid { width: 100%; border-collapse: collapse; font-size: 13px; min-width: 900px; }
+.pastoral-grid th { position: sticky; top: 0; background: var(--surface); padding: 8px 10px; text-align: left; font-weight: 600; border-bottom: 2px solid var(--border); white-space: nowrap; font-size: 12px; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 0.3px; }
+.pastoral-grid td { padding: 8px 10px; border-bottom: 1px solid var(--border); white-space: nowrap; text-align: center; }
+.pastoral-name-col { text-align: left !important; min-width: 160px; position: sticky; left: 0; background: var(--surface); z-index: 1; }
+.pastoral-row { cursor: pointer; transition: background 0.1s; }
+.pastoral-row:hover { background: var(--surface-hover, rgba(0,0,0,0.02)); }
+.pastoral-row td:first-child { display: flex; align-items: center; gap: 6px; }
+.pastoral-dot-red { width: 8px; height: 8px; border-radius: 50%; background: #ef4444; display: inline-block; flex-shrink: 0; }
+.pastoral-dot-yellow { width: 8px; height: 8px; border-radius: 50%; background: #eab308; display: inline-block; flex-shrink: 0; }
+.pastoral-overlay { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.3); z-index: 200; }
+.pastoral-panel { position: fixed; top: 0; right: 0; bottom: 0; width: 480px; max-width: 100vw; background: var(--surface); z-index: 201; box-shadow: -4px 0 20px rgba(0,0,0,0.15); display: flex; flex-direction: column; overflow: hidden; }
+.pastoral-panel-header { display: flex; justify-content: space-between; align-items: center; padding: 20px 24px; border-bottom: 1px solid var(--border); flex-shrink: 0; }
+.pastoral-panel-header h3 { font-size: 18px; font-weight: 700; margin: 0; }
+.pastoral-panel-body { flex: 1; overflow-y: auto; padding: 20px 24px; }
+.pastoral-mobile-cards { display: none; }
+.badge-active { background: #dbeafe; color: #1d4ed8; }
+.badge-praying { background: #ede9fe; color: #7c3aed; }
+.badge-answered { background: #dcfce7; color: #16a34a; }
+
+@media (max-width: 768px) {
+  .pastoral-grid-wrap { display: none; }
+  .pastoral-mobile-cards { display: block; }
+  .pastoral-mobile-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-md); padding: 14px 16px; margin-bottom: 8px; cursor: pointer; }
+  .pastoral-mobile-card:active { background: var(--bg); }
+  .pastoral-panel { width: 100vw; }
+}
+
 /* Settings Page */
 .settings-no-access {
   display: flex;

@@ -11,6 +11,7 @@ import {
   BookOpen,
   Sprout,
   Calendar,
+  HeartHandshake,
   Heart,
   Settings,
   LogOut,
@@ -35,7 +36,9 @@ export function Sidebar() {
     ? t('role.' + (session?.user as { role?: string }).role)
     : '';
 
-  const navItems = [
+  const rawRole = (session?.user as { role?: string })?.role || 'member';
+
+  const navItems: { href: string; icon: typeof LayoutDashboard; label: string; testId: string; roles?: string[] }[] = [
     {
       href: '/dashboard',
       icon: LayoutDashboard,
@@ -65,6 +68,13 @@ export function Sidebar() {
       icon: Users,
       label: t('nav.members'),
       testId: 'nav-members',
+    },
+    {
+      href: '/pastoral',
+      icon: HeartHandshake,
+      label: t('nav.pastoral'),
+      testId: 'nav-pastoral',
+      roles: ['admin', 'house_church_pastor'],
     },
     {
       href: '/attendance',
@@ -142,7 +152,7 @@ export function Sidebar() {
         </div>
 
         <nav className="sidebar-nav">
-          {navItems.map((item) => {
+          {navItems.filter((item) => !item.roles || item.roles.includes(rawRole)).map((item) => {
             const Icon = item.icon;
             return (
               <Link

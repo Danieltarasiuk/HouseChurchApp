@@ -56,7 +56,7 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
     async authorized({ auth: session, request }) {
       const isLoggedIn = !!session?.user;
       const { pathname } = request.nextUrl;
-      const protectedPaths = ['/dashboard', '/discipleship', '/incubator', '/house-churches', '/members', '/attendance', '/prayer', '/settings'];
+      const protectedPaths = ['/dashboard', '/discipleship', '/incubator', '/house-churches', '/members', '/attendance', '/prayer', '/pastoral', '/settings'];
       const isProtected = protectedPaths.some((p) => pathname.startsWith(p));
       if (isProtected) return isLoggedIn;
       return true;

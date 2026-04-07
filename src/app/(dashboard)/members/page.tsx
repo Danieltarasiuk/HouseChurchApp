@@ -46,6 +46,7 @@ export default function MembersPage() {
   const [members, setMembers] = useState<Member[]>([]);
   const [loading, setLoading] = useState(true);
   const [view, setView] = useState<'list' | 'map'>('list');
+  const [redFlags, setRedFlags] = useState<Record<string, number>>({});
 
   useEffect(() => {
     fetch('/api/members')
@@ -53,7 +54,18 @@ export default function MembersPage() {
       .then((data) => setMembers(data.members || []))
       .catch(() => {})
       .finally(() => setLoading(false));
-  }, []);
+
+    if (canSeeMap) {
+      fetch('/api/pastoral/flags/summary')
+        .then(r => r.json())
+        .then(data => {
+          const map: Record<string, number> = {};
+          for (const f of (data.flags || [])) map[f.member_id] = f.red_count;
+          setRedFlags(map);
+        })
+        .catch(() => {});
+    }
+  }, [canSeeMap]);
 
   const filtered = members.filter((m) => {
     const q = search.toLowerCase();
@@ -141,7 +153,10 @@ export default function MembersPage() {
                 ) : (
                   filtered.map((member) => (
                     <tr key={member.id}>
-                      <td>{member.first_name} {member.last_name}</td>
+                      <td style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                        {member.first_name} {member.last_name}
+                        {redFlags[member.id] > 0 && <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: '#ef4444', display: 'inline-block', flexShrink: 0 }} title="Red flag" />}
+                      </td>
                       <td>{member.email}</td>
                       <td>{member.phone || '—'}</td>
                       <td>{member.house_church_name || '—'}</td>
