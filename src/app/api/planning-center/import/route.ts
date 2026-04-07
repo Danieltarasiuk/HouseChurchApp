@@ -275,7 +275,8 @@ export async function POST() {
       campuses: pcoCampuses.size,
     });
   } catch (error) {
-    console.error('PCO import error:', error);
-    return NextResponse.json({ error: 'Import failed' }, { status: 500 });
+    const message = error instanceof Error ? error.message : String(error);
+    console.error('PCO import error:', message, error);
+    return NextResponse.json({ error: `Sync failed: ${message}` }, { status: 500 });
   }
 }
