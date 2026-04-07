@@ -12,7 +12,7 @@ const roleLabel = (role: string, t: (k: string) => string) => {
 
 const roleBadgeClass = (role: string) => {
   switch (role) {
-    case 'senior_pastor':
+    case 'admin':
       return 'badge badge-pastor';
     case 'house_church_pastor':
       return 'badge badge-leader';

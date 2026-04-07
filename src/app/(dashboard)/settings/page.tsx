@@ -1,9 +1,10 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { Suspense, useState, useEffect, useCallback } from 'react';
 import { useSession } from 'next-auth/react';
+import { useSearchParams } from 'next/navigation';
 import { useLang } from '@/context/LangContext';
-import { Shield } from 'lucide-react';
+import { Shield, CloudDownload, Link as LinkIcon, CheckCircle } from 'lucide-react';
 
 interface User {
   id: string;
@@ -12,11 +13,11 @@ interface User {
   role: string;
 }
 
-const ROLES = ['member', 'house_church_pastor', 'senior_pastor'] as const;
+const ROLES = ['member', 'house_church_pastor', 'admin'] as const;
 
 const roleBadgeClass = (role: string) => {
   switch (role) {
-    case 'senior_pastor':
+    case 'admin':
       return 'badge badge-pastor';
     case 'house_church_pastor':
       return 'badge badge-leader';
@@ -26,11 +27,20 @@ const roleBadgeClass = (role: string) => {
 };
 
 export default function SettingsPage() {
+  return (
+    <Suspense>
+      <SettingsContent />
+    </Suspense>
+  );
+}
+
+function SettingsContent() {
   const { t } = useLang();
   const { data: session } = useSession();
+  const searchParams = useSearchParams();
   const currentUserRole = (session?.user as { role?: string })?.role;
   const currentUserId = session?.user?.id;
-  const isAdmin = currentUserRole === 'senior_pastor';
+  const isAdmin = currentUserRole === 'admin';
 
   const [users, setUsers] = useState<User[]>([]);
   const [loading, setLoading] = useState(true);
@@ -38,6 +48,11 @@ export default function SettingsPage() {
   const [updating, setUpdating] = useState<string | null>(null);
   const [success, setSuccess] = useState('');
   const [search, setSearch] = useState('');
+
+  // Planning Center state
+  const [pcoConnected, setPcoConnected] = useState(false);
+  const [pcoImporting, setPcoImporting] = useState(false);
+  const [pcoResult, setPcoResult] = useState('');
 
   const fetchUsers = useCallback(async () => {
     try {
@@ -67,6 +82,30 @@ export default function SettingsPage() {
     }
   }, [isAdmin, fetchUsers]);
 
+  // Check for PCO callback params
+  useEffect(() => {
+    if (searchParams.get('pco_connected') === 'true') {
+      setPcoConnected(true);
+      setSuccess(t('settings.pcoConnected'));
+      setTimeout(() => setSuccess(''), 5000);
+    }
+    if (searchParams.get('pco_error')) {
+      setError(t('settings.pcoError'));
+    }
+  }, [searchParams, t]);
+
+  // Check if PCO is already connected
+  useEffect(() => {
+    if (isAdmin) {
+      fetch('/api/planning-center/status')
+        .then((res) => res.json())
+        .then((data) => {
+          if (data.connected) setPcoConnected(true);
+        })
+        .catch(() => {});
+    }
+  }, [isAdmin]);
+
   const updateRole = async (userId: string, newRole: string) => {
     setUpdating(userId);
     setSuccess('');
@@ -95,6 +134,34 @@ export default function SettingsPage() {
       setError(t('settings.updateError'));
     } finally {
       setUpdating(null);
+    }
+  };
+
+  const importFromPco = async () => {
+    setPcoImporting(true);
+    setPcoResult('');
+    setError('');
+
+    try {
+      const res = await fetch('/api/planning-center/import', { method: 'POST' });
+      const data = await res.json();
+
+      if (!res.ok) {
+        setError(data.error || t('settings.pcoImportError'));
+        return;
+      }
+
+      setPcoResult(
+        t('settings.pcoImportSuccess')
+          .replace('{imported}', String(data.imported))
+          .replace('{skipped}', String(data.skipped))
+          .replace('{total}', String(data.total))
+      );
+      setTimeout(() => setPcoResult(''), 8000);
+    } catch {
+      setError(t('settings.pcoImportError'));
+    } finally {
+      setPcoImporting(false);
     }
   };
 
@@ -143,6 +210,49 @@ export default function SettingsPage() {
         </div>
       )}
 
+      {/* Planning Center Integration */}
+      <div className="card card-padded" style={{ marginBottom: '24px' }}>
+        <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', flexWrap: 'wrap', gap: '16px' }}>
+          <div>
+            <h3 style={{ fontSize: '16px', fontWeight: 700, marginBottom: '4px' }}>
+              {t('settings.pcoTitle')}
+            </h3>
+            <p style={{ fontSize: '14px', color: 'var(--text-secondary)' }}>
+              {t('settings.pcoDesc')}
+            </p>
+          </div>
+          <div style={{ display: 'flex', gap: '10px', alignItems: 'center', flexWrap: 'wrap' }}>
+            {pcoConnected ? (
+              <>
+                <span className="badge badge-active" style={{ gap: '4px', display: 'inline-flex', alignItems: 'center' }}>
+                  <CheckCircle size={12} />
+                  {t('settings.pcoStatusConnected')}
+                </span>
+                <button
+                  className="btn btn-primary"
+                  onClick={importFromPco}
+                  disabled={pcoImporting}
+                >
+                  <CloudDownload size={14} />
+                  {pcoImporting ? t('settings.pcoImporting') : t('settings.pcoImport')}
+                </button>
+              </>
+            ) : (
+              <a href="/api/planning-center/authorize" className="btn btn-primary" style={{ textDecoration: 'none' }}>
+                <LinkIcon size={14} />
+                {t('settings.pcoConnect')}
+              </a>
+            )}
+          </div>
+        </div>
+        {pcoResult && (
+          <div className="settings-alert settings-alert-success" role="status" style={{ marginTop: '16px', marginBottom: 0 }}>
+            {pcoResult}
+          </div>
+        )}
+      </div>
+
+      {/* User Roles */}
       <div className="card">
         <div className="card-header">
           <div className="card-title">

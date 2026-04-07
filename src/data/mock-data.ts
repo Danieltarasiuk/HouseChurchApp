@@ -44,7 +44,7 @@ export const MOCK_CHURCHES: HouseChurch[] = [
 ];
 
 export const MOCK_MEMBERS: Member[] = [
-  { id: 1, first_name: 'Danny', last_name: 'T', email: 'danny@housechurch.app', phone: '555-0100', role: 'senior_pastor', house_church_name: null },
+  { id: 1, first_name: 'Danny', last_name: 'T', email: 'danny@housechurch.app', phone: '555-0100', role: 'admin', house_church_name: null },
   { id: 2, first_name: 'James', last_name: 'Wilson', email: 'james@housechurch.app', phone: '555-0201', role: 'house_church_pastor', house_church_id: 1, house_church_name: 'Grace House' },
   { id: 3, first_name: 'Sarah', last_name: 'Martinez', email: 'sarah@housechurch.app', phone: '555-0202', role: 'house_church_pastor', house_church_id: 2, house_church_name: 'Hope House' },
   { id: 4, first_name: 'Mike', last_name: 'Chen', email: 'mike@housechurch.app', phone: '555-0203', role: 'house_church_pastor', house_church_id: 3, house_church_name: 'Faith House' },

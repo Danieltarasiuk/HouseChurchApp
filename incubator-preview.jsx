@@ -67,7 +67,7 @@ export default function IncubatorPreview() {
             <div style={{ width: 36, height: 36, borderRadius: "50%", background: "linear-gradient(135deg, #00C853, #38E878)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 14, fontWeight: 700 }}>DT</div>
             <div>
               <strong style={{ fontSize: 13, display: "block" }}>Danny T</strong>
-              <span style={{ fontSize: 11, color: "rgba(255,255,255,0.55)" }}>Senior Pastor</span>
+              <span style={{ fontSize: 11, color: "rgba(255,255,255,0.55)" }}>Admin</span>
             </div>
           </div>
           <div style={{ display: "flex", marginTop: 14, background: "rgba(255,255,255,0.06)", borderRadius: 6, overflow: "hidden", border: "1px solid rgba(255,255,255,0.08)" }}>

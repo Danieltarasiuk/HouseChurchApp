@@ -162,4 +162,4 @@ TBD
 
 ## Support
 
-For questions or issues, please contact Danny (Senior Pastor) or open an issue in the project repository.
+For questions or issues, please contact Danny (Admin) or open an issue in the project repository.

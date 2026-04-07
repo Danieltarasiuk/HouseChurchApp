@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server';
 import { auth } from '@/lib/auth';
 import { sql } from '@/lib/db';
 
-const VALID_ROLES = ['member', 'house_church_pastor', 'senior_pastor'];
+const VALID_ROLES = ['member', 'house_church_pastor', 'admin'];
 
 export async function GET() {
   const session = await auth();
@@ -11,7 +11,7 @@ export async function GET() {
   }
 
   const userRole = (session.user as { role?: string }).role;
-  if (userRole !== 'senior_pastor') {
+  if (userRole !== 'admin') {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
   }
 
@@ -33,7 +33,7 @@ export async function PATCH(request: Request) {
   }
 
   const userRole = (session.user as { role?: string }).role;
-  if (userRole !== 'senior_pastor') {
+  if (userRole !== 'admin') {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
   }
 
