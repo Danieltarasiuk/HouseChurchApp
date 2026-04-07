@@ -10,16 +10,20 @@ export async function GET() {
 
   try {
     const members = await sql(
-      `SELECT m.id, m.first_name, m.last_name, m.email, m.phone,
+      `SELECT m.id,
+              COALESCE(m.first_name, split_part(u.name, ' ', 1)) AS first_name,
+              COALESCE(m.last_name, nullif(substring(u.name from position(' ' in u.name) + 1), u.name)) AS last_name,
+              COALESCE(m.email, u.email) AS email,
+              m.phone,
               m.house_church_id, hc.name AS house_church_name,
               m.address_street, m.address_city, m.address_state, m.address_zip,
               m.latitude, m.longitude,
-              COALESCE(u.role, 'member') AS role
+              COALESCE(u.role, m.role, 'member') AS role
        FROM members m
        LEFT JOIN house_churches hc ON m.house_church_id = hc.id
-       LEFT JOIN users u ON LOWER(m.email) = LOWER(u.email)
+       LEFT JOIN users u ON m.user_id = u.id
        WHERE m.is_active = true
-       ORDER BY m.first_name, m.last_name`
+       ORDER BY COALESCE(m.first_name, u.name), m.last_name`
     );
     return NextResponse.json({ members });
   } catch (error) {
