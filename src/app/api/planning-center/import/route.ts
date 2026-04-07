@@ -199,12 +199,12 @@ export async function POST() {
         campusToHcId.set(pcoId, existing[0].id);
         // Update name in case it changed
         await sql(
-          'UPDATE house_churches SET name = $1, is_active = true WHERE pco_campus_id = $2',
+          'UPDATE house_churches SET name = $1, campus_name = $1, is_active = true WHERE pco_campus_id = $2',
           [campusName, pcoId]
         );
       } else {
         const result = await sql(
-          'INSERT INTO house_churches (name, pco_campus_id, is_active) VALUES ($1, $2, true) RETURNING id',
+          'INSERT INTO house_churches (name, pco_campus_id, campus_name, is_active) VALUES ($1, $2, $1, true) RETURNING id',
           [campusName, pcoId]
         );
         campusToHcId.set(pcoId, result[0].id);
@@ -218,11 +218,6 @@ export async function POST() {
     const syncedPcoIds: string[] = [];
 
     for (const person of people) {
-      if (!person.email) {
-        skipped++;
-        continue;
-      }
-
       syncedPcoIds.push(person.pco_id);
       const hcId = person.campus_pco_id ? (campusToHcId.get(person.campus_pco_id) || null) : null;
 
@@ -231,20 +226,20 @@ export async function POST() {
                               address_street, address_city, address_state, address_zip,
                               pco_id, is_active)
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, true)
-         ON CONFLICT (email) DO UPDATE SET
+         ON CONFLICT (pco_id) DO UPDATE SET
            first_name = EXCLUDED.first_name,
            last_name = EXCLUDED.last_name,
+           email = COALESCE(NULLIF(EXCLUDED.email, ''), members.email),
            phone = COALESCE(NULLIF(EXCLUDED.phone, ''), members.phone),
            house_church_id = COALESCE(EXCLUDED.house_church_id, members.house_church_id),
            address_street = COALESCE(NULLIF(EXCLUDED.address_street, ''), members.address_street),
            address_city = COALESCE(NULLIF(EXCLUDED.address_city, ''), members.address_city),
            address_state = COALESCE(NULLIF(EXCLUDED.address_state, ''), members.address_state),
            address_zip = COALESCE(NULLIF(EXCLUDED.address_zip, ''), members.address_zip),
-           pco_id = EXCLUDED.pco_id,
            is_active = true
          RETURNING id`,
         [
-          person.first_name, person.last_name, person.email,
+          person.first_name, person.last_name, person.email || null,
           person.phone || null, hcId,
           person.address_street || null, person.address_city || null,
           person.address_state || null, person.address_zip || null,
