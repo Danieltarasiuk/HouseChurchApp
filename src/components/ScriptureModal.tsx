@@ -32,21 +32,41 @@ export default function ScriptureModal({
       return;
     }
 
-    // Simulate verse lookup with placeholder text
-    // In production, this would call the ESV API (en) or a NBLA source (es)
     setLoading(true);
-    const timer = setTimeout(() => {
-      const placeholder =
-        lang === 'es'
-          ? `[Texto de ${reference} — NBLA]\n\nEn la versión de producción, el texto completo del versículo se cargará automáticamente desde la Biblia NBLA.`
-          : `[Text of ${reference} — ESV]\n\nIn the production version, the full verse text will load automatically from the ESV Bible.`;
+    let cancelled = false;
 
-      verseCache[cacheKey] = placeholder;
-      setText(placeholder);
-      setLoading(false);
-    }, 400);
+    const endpoint = lang === 'es'
+      ? `/api/scripture/nbla?ref=${encodeURIComponent(reference)}`
+      : `/api/scripture/esv?ref=${encodeURIComponent(reference)}`;
 
-    return () => clearTimeout(timer);
+    fetch(endpoint)
+      .then((res) => res.json())
+      .then((data) => {
+        if (cancelled) return;
+        if (data.error || !data.text) {
+          const fallback = lang === 'es'
+            ? `Texto no disponible. Por favor busca ${reference} en tu Biblia.`
+            : `Verse text unavailable. Please look up ${reference} in your Bible.`;
+          verseCache[cacheKey] = fallback;
+          setText(fallback);
+        } else {
+          verseCache[cacheKey] = data.text;
+          setText(data.text);
+        }
+      })
+      .catch(() => {
+        if (cancelled) return;
+        const fallback = lang === 'es'
+          ? `Texto no disponible. Por favor busca ${reference} en tu Biblia.`
+          : `Verse text unavailable. Please look up ${reference} in your Bible.`;
+        verseCache[cacheKey] = fallback;
+        setText(fallback);
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+
+    return () => { cancelled = true; };
   }, [reference, lang]);
 
   return (

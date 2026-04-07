@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useLang } from '@/context/LangContext';
 import ScriptureModal from '@/components/ScriptureModal';
 import { DISCIPLESHIP_CURRICULUM, loc } from '@/data/discipleship-curriculum';
@@ -19,10 +19,63 @@ export default function DiscipleshipPage() {
   const [dayIdx, setDayIdx] = useState(0); // 0-5 for days 1-6
   const [answers, setAnswers] = useState<AnswersState>({}); // keyed by "week-day-passage-type"
   const [verseModal, setVerseModal] = useState<VerseModalState | null>(null); // { reference }
+  const [savingState, setSavingState] = useState<'idle' | 'saving' | 'saved'>('idle');
+  const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const savedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const week = DISCIPLESHIP_CURRICULUM.weeks[weekIdx];
   const currentDay = week.days[dayIdx];
   const section = currentDay.section; // auto-determined from day
+
+  // Load answers from DB when week/day changes
+  useEffect(() => {
+    fetch(`/api/discipleship/answers?week=${weekIdx + 1}&day=${dayIdx + 1}`)
+      .then((res) => res.json())
+      .then((data) => {
+        if (data.answers && typeof data.answers === 'object') {
+          const prefixed: AnswersState = {};
+          for (const [key, val] of Object.entries(data.answers)) {
+            prefixed[`${weekIdx}-${dayIdx}-${key}`] = val as string;
+          }
+          setAnswers((prev) => ({ ...prev, ...prefixed }));
+        }
+      })
+      .catch(() => {});
+  }, [weekIdx, dayIdx]);
+
+  // Debounced save function
+  const saveAnswers = useCallback((currentAnswers: AnswersState, wIdx: number, dIdx: number) => {
+    if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+
+    saveTimerRef.current = setTimeout(() => {
+      const prefix = `${wIdx}-${dIdx}-`;
+      const stripped: Record<string, string> = {};
+      for (const [key, val] of Object.entries(currentAnswers)) {
+        if (key.startsWith(prefix) && val) {
+          stripped[key.slice(prefix.length)] = val;
+        }
+      }
+
+      if (Object.keys(stripped).length === 0) return;
+
+      setSavingState('saving');
+      fetch('/api/discipleship/answers', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ week: wIdx + 1, day: dIdx + 1, answers: stripped }),
+      })
+        .then((res) => {
+          if (res.ok) {
+            setSavingState('saved');
+            if (savedTimerRef.current) clearTimeout(savedTimerRef.current);
+            savedTimerRef.current = setTimeout(() => setSavingState('idle'), 2000);
+          } else {
+            setSavingState('idle');
+          }
+        })
+        .catch(() => setSavingState('idle'));
+    }, 500);
+  }, []);
 
   const handleWeekChange = (idx: number) => {
     setWeekIdx(idx);
@@ -34,7 +87,9 @@ export default function DiscipleshipPage() {
   const getAnswer = (pi: number | string, type: string): string =>
     answers[answerKey(pi, type)] || '';
   const setAnswer = (pi: number | string, type: string, val: string) => {
-    setAnswers((prev) => ({ ...prev, [answerKey(pi, type)]: val }));
+    const newAnswers = { ...answers, [answerKey(pi, type)]: val };
+    setAnswers(newAnswers);
+    saveAnswers(newAnswers, weekIdx, dayIdx);
   };
 
   return (
@@ -43,6 +98,13 @@ export default function DiscipleshipPage() {
         <h2>{t('disc.title')}</h2>
         <p>{t('disc.sub')}</p>
       </div>
+
+      {/* Save Status */}
+      {savingState !== 'idle' && (
+        <div style={{ fontSize: '13px', color: savingState === 'saving' ? 'var(--text-tertiary)' : 'var(--accent)', marginBottom: '12px' }}>
+          {savingState === 'saving' ? 'Saving...' : 'Saved \u2713'}
+        </div>
+      )}
 
       {/* Week Tabs */}
       <div className="disc-week-tabs">
