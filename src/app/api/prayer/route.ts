@@ -95,11 +95,15 @@ export async function POST(request: Request) {
     let resolvedHcId = house_church_id || null;
     let resolvedVis = vis;
     if (vis === 'house_church' && !resolvedHcId) {
-      const memberRow = await sql(
-        'SELECT house_church_id FROM members WHERE user_id = $1 AND is_active = true LIMIT 1',
-        [session.user.id]
-      );
-      resolvedHcId = memberRow[0]?.house_church_id || null;
+      try {
+        const memberRow = await sql(
+          'SELECT house_church_id FROM members WHERE user_id = $1 AND is_active = true LIMIT 1',
+          [session.user.id]
+        );
+        resolvedHcId = memberRow[0]?.house_church_id || null;
+      } catch {
+        resolvedHcId = null;
+      }
       if (!resolvedHcId) {
         // Graceful fallback: if user has no HC, save as public instead of rejecting
         resolvedVis = 'public';
@@ -110,7 +114,7 @@ export async function POST(request: Request) {
       `INSERT INTO prayer_requests (title, description, user_id, member_id, status, visibility, house_church_id)
        VALUES ($1, $2, $3, $4, 'active', $5, $6)
        RETURNING id, title, description, status, visibility, house_church_id, member_id, created_at, user_id`,
-      [title.trim(), description?.trim() || '', session.user.id, member_id || null, resolvedVis, resolvedHcId]
+      [title.trim(), description?.trim() || null, session.user.id, member_id || null, resolvedVis, resolvedHcId]
     );
 
     return NextResponse.json({ prayer: { ...result[0], requester_name: session.user.name } });

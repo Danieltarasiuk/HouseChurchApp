@@ -45,6 +45,8 @@ CREATE TABLE IF NOT EXISTS members (
   role VARCHAR(50) DEFAULT 'member',
   pco_id VARCHAR(100) UNIQUE,
   campus_pco_id VARCHAR(100),
+  gender VARCHAR(10),
+  date_of_birth DATE,
   latitude DOUBLE PRECISION,
   longitude DOUBLE PRECISION,
   joined_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),

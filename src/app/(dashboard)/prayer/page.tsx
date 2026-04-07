@@ -71,15 +71,15 @@ export default function PrayerPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ title: formTitle, description: formDesc, visibility: formVisibility }),
       });
+      const data = await res.json();
       if (res.ok) {
-        const data = await res.json();
         setPrayers((prev) => [data.prayer, ...prev]);
         setFormTitle('');
         setFormDesc('');
         setFormVisibility('public');
         setShowForm(false);
       } else {
-        setFormError(t('pray.submitError'));
+        setFormError(data.error || t('pray.submitError'));
       }
     } catch {
       setFormError(t('pray.submitError'));

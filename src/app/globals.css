@@ -849,6 +849,22 @@ tr:hover td {
   padding: 2px 8px;
 }
 
+/* Address truncation */
+.address-truncate {
+  display: inline-block;
+  max-width: 180px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  vertical-align: bottom;
+}
+
+/* Column address */
+.col-address {
+  max-width: 200px;
+}
+
 @media (max-width: 768px) {
   .hc-grid { grid-template-columns: 1fr; }
+  th.col-hide-mobile, td.col-hide-mobile { display: none; }
 }

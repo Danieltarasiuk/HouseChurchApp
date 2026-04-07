@@ -299,8 +299,8 @@ export default function PastoralPage() {
           member_id: selectedMember.id,
         }),
       });
+      const data = await res.json();
       if (res.ok) {
-        const data = await res.json();
         setPanelPrayers(prev => [data.prayer, ...prev]);
         setShowPrayerForm(false);
         setPrayerTitle('');
@@ -309,7 +309,7 @@ export default function PastoralPage() {
         setPrayerSaved(true);
         setTimeout(() => setPrayerSaved(false), 2000);
       } else {
-        setPrayerError(t('pray.submitError'));
+        setPrayerError(data.error || t('pray.submitError'));
       }
     } catch {
       setPrayerError(t('pray.submitError'));

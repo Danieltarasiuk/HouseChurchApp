@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { useSession } from 'next-auth/react';
+import { useRouter } from 'next/navigation';
 import { useLang } from '@/context/LangContext';
 import { Plus, Pencil, ChevronDown, ChevronRight } from 'lucide-react';
 
@@ -77,6 +78,7 @@ const roleLabel = (role: string, t: (k: string) => string) => {
 
 export default function HouseChurchesPage() {
   const { t } = useLang();
+  const router = useRouter();
   const { data: session } = useSession();
   const userRole = (session?.user as { role?: string })?.role;
   const isAdmin = userRole === 'admin';
@@ -85,7 +87,6 @@ export default function HouseChurchesPage() {
   const [members, setMembers] = useState<Member[]>([]);
   const [campuses, setCampuses] = useState<Campus[]>([]);
   const [loading, setLoading] = useState(true);
-  const [selected, setSelected] = useState<HouseChurch | null>(null);
   const [showModal, setShowModal] = useState(false);
   const [form, setForm] = useState<FormData>(emptyForm);
   const [saving, setSaving] = useState(false);
@@ -149,18 +150,22 @@ export default function HouseChurchesPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           ...form,
-          pastor_id: form.pastor_id ? parseInt(form.pastor_id) : null,
-          host_id: form.host_id ? parseInt(form.host_id) : null,
-          trainee_id: form.trainee_id ? parseInt(form.trainee_id) : null,
+          pastor_id: form.pastor_id || null,
+          host_id: form.host_id || null,
+          trainee_id: form.trainee_id || null,
         }),
       });
 
-      if (!res.ok) throw new Error();
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({}));
+        throw new Error(errData.error || 'Request failed');
+      }
 
       setShowModal(false);
       setMessage(isEdit ? t('hc.updated') : t('hc.created'));
       loadData();
-    } catch {
+    } catch (err) {
+      console.error('HC save error:', err);
       setMessage(form.id ? t('hc.updateError') : t('hc.createError'));
     } finally {
       setSaving(false);
@@ -195,15 +200,6 @@ export default function HouseChurchesPage() {
     return groups;
   })();
 
-  const membersForChurch = selected
-    ? members.filter((m) => m.house_church_id === selected.id)
-    : [];
-
-  const formatAddress = (hc: HouseChurch) => {
-    const parts = [hc.address_street, hc.address_city, hc.address_state, hc.address_zip].filter(Boolean);
-    return parts.join(', ') || hc.location || null;
-  };
-
   if (loading) {
     return (
       <div>
@@ -214,100 +210,6 @@ export default function HouseChurchesPage() {
         <div style={{ padding: '40px', textAlign: 'center', color: 'var(--text-tertiary)' }}>
           {t('dashboard.loading')}
         </div>
-      </div>
-    );
-  }
-
-  /* ---------- Detail view ---------- */
-  if (selected) {
-    const addr = formatAddress(selected);
-    return (
-      <div>
-        <div className="page-header">
-          <button className="btn btn-ghost" onClick={() => setSelected(null)}>
-            ← {t('hc.back')}
-          </button>
-          {isAdmin && (
-            <button className="btn btn-secondary" onClick={() => { openEdit(selected); }}>
-              <Pencil size={14} /> {t('common.edit')}
-            </button>
-          )}
-        </div>
-
-        <div className="card">
-          <div className="card-header">
-            <h2 className="card-title">{selected.name}</h2>
-            {selected.campus_name && (
-              <span className="badge badge-member">{selected.campus_name}</span>
-            )}
-          </div>
-
-          {selected.description && <p style={{ padding: '0 24px' }}>{selected.description}</p>}
-
-          <div className="hc-detail-grid" style={{ padding: '16px 24px', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
-            {selected.pastor_name && (
-              <div><strong>{t('hc.pastor')}:</strong> {selected.pastor_name}</div>
-            )}
-            {selected.host_name && (
-              <div><strong>{t('hc.host')}:</strong> {selected.host_name}</div>
-            )}
-            {selected.trainee_name && (
-              <div><strong>{t('hc.trainee')}:</strong> {selected.trainee_name}</div>
-            )}
-            {selected.meeting_day && (
-              <div><strong>{t('hc.meetingTime')}:</strong> {selected.meeting_day}{selected.meeting_time ? ` @ ${selected.meeting_time}` : ''}</div>
-            )}
-            {addr && (
-              <div style={{ gridColumn: '1 / -1' }}><strong>{t('hc.address')}:</strong> {addr}</div>
-            )}
-          </div>
-        </div>
-
-        <div className="card" style={{ marginTop: '20px' }}>
-          <div className="card-header">
-            <h3 className="card-title">
-              {t('hc.members')} ({membersForChurch.length})
-            </h3>
-          </div>
-
-          <div className="table-wrap">
-            <table>
-              <thead>
-                <tr>
-                  <th>{t('common.name')}</th>
-                  <th>{t('auth.email')}</th>
-                  <th>{t('hc.phone')}</th>
-                  <th>{t('hc.role')}</th>
-                </tr>
-              </thead>
-              <tbody>
-                {membersForChurch.length === 0 ? (
-                  <tr>
-                    <td colSpan={4} style={{ textAlign: 'center', color: 'var(--text-tertiary)', padding: '24px' }}>
-                      {t('common.noResults')}
-                    </td>
-                  </tr>
-                ) : (
-                  membersForChurch.map((m) => (
-                    <tr key={m.id}>
-                      <td>{m.first_name} {m.last_name}</td>
-                      <td>{m.email || '—'}</td>
-                      <td>{m.phone || '—'}</td>
-                      <td>
-                        <span className={`badge ${m.role === 'house_church_pastor' ? 'badge-pastor' : m.role === 'admin' ? 'badge-leader' : 'badge-member'}`}>
-                          {roleLabel(m.role, t)}
-                        </span>
-                      </td>
-                    </tr>
-                  ))
-                )}
-              </tbody>
-            </table>
-          </div>
-        </div>
-
-        {/* Modal for editing */}
-        {showModal && renderModal()}
       </div>
     );
   }
@@ -497,8 +399,8 @@ export default function HouseChurchesPage() {
                     className="hc-card"
                     role="button"
                     tabIndex={0}
-                    onClick={() => setSelected(church)}
-                    onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setSelected(church); } }}
+                    onClick={() => router.push(`/house-churches/${church.id}`)}
+                    onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); router.push(`/house-churches/${church.id}`); } }}
                   >
                     <div className="hc-card-top">
                       <h3>{church.name}</h3>

@@ -16,6 +16,12 @@ interface Member {
   phone: string | null;
   role: string;
   house_church_name: string | null;
+  gender: string | null;
+  date_of_birth: string | null;
+  address_street: string | null;
+  address_city: string | null;
+  address_state: string | null;
+  address_zip: string | null;
   latitude: number | null;
   longitude: number | null;
 }
@@ -36,8 +42,43 @@ const roleBadgeClass = (role: string) => {
   }
 };
 
+/** Parse YYYY-MM-DD safely without timezone shift */
+function parseDate(d: string): Date | null {
+  const parts = d.split('-');
+  if (parts.length !== 3) return null;
+  const [y, m, day] = parts.map(Number);
+  if (!y || !m || !day) return null;
+  return new Date(y, m - 1, day);
+}
+
+/** Calculate age from YYYY-MM-DD date_of_birth */
+function calcAge(dob: string): number | null {
+  const birth = parseDate(dob);
+  if (!birth) return null;
+  const today = new Date();
+  let age = today.getFullYear() - birth.getFullYear();
+  const monthDiff = today.getMonth() - birth.getMonth();
+  if (monthDiff < 0 || (monthDiff === 0 && today.getDate() < birth.getDate())) {
+    age--;
+  }
+  return age;
+}
+
+/** Format birthday as "Mon DD" (month + day only) */
+function formatBirthday(dob: string, lang: string): string {
+  const d = parseDate(dob);
+  if (!d) return '—';
+  return d.toLocaleDateString(lang === 'es' ? 'es-US' : 'en-US', { month: 'short', day: 'numeric' });
+}
+
+/** Build formatted address string */
+function formatAddress(m: Member): string | null {
+  const parts = [m.address_street, m.address_city, m.address_state, m.address_zip].filter(Boolean);
+  return parts.length > 0 ? parts.join(', ') : null;
+}
+
 export default function MembersPage() {
-  const { t } = useLang();
+  const { t, language } = useLang();
   const { data: session } = useSession();
   const userRole = (session?.user as { role?: string })?.role;
   const canSeeMap = userRole === 'admin' || userRole === 'house_church_pastor';
@@ -137,36 +178,57 @@ export default function MembersPage() {
               <thead>
                 <tr>
                   <th>{t('common.name')}</th>
-                  <th>{t('auth.email')}</th>
-                  <th>{t('mem.phone')}</th>
                   <th>{t('mem.houseChurch')}</th>
-                  <th>{t('mem.role')}</th>
+                  <th>{t('mem.gender')}</th>
+                  <th>{t('mem.age')}</th>
+                  <th>{t('mem.birthday')}</th>
+                  <th className="col-address">{t('mem.address')}</th>
+                  <th className="col-hide-mobile">{t('auth.email')}</th>
+                  <th className="col-hide-mobile">{t('mem.phone')}</th>
                 </tr>
               </thead>
               <tbody>
                 {filtered.length === 0 ? (
                   <tr>
-                    <td colSpan={5} style={{ textAlign: 'center', color: 'var(--text-tertiary)', padding: '24px' }}>
+                    <td colSpan={8} style={{ textAlign: 'center', color: 'var(--text-tertiary)', padding: '24px' }}>
                       {t('common.noResults')}
                     </td>
                   </tr>
                 ) : (
-                  filtered.map((member) => (
-                    <tr key={member.id}>
-                      <td style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                        {member.first_name} {member.last_name}
-                        {redFlags[member.id] > 0 && <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: '#ef4444', display: 'inline-block', flexShrink: 0 }} title="Red flag" />}
-                      </td>
-                      <td>{member.email}</td>
-                      <td>{member.phone || '—'}</td>
-                      <td>{member.house_church_name || '—'}</td>
-                      <td>
-                        <span className={roleBadgeClass(member.role)}>
-                          {roleLabel(member.role, t)}
-                        </span>
-                      </td>
-                    </tr>
-                  ))
+                  filtered.map((member) => {
+                    const age = member.date_of_birth ? calcAge(member.date_of_birth) : null;
+                    const bday = member.date_of_birth ? formatBirthday(member.date_of_birth, language) : '—';
+                    const addr = formatAddress(member);
+
+                    return (
+                      <tr key={member.id}>
+                        <td>
+                          <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                            {member.first_name} {member.last_name}
+                            {member.role !== 'member' && (
+                              <span className={roleBadgeClass(member.role)} style={{ fontSize: '10px', padding: '1px 7px' }}>
+                                {roleLabel(member.role, t)}
+                              </span>
+                            )}
+                            {redFlags[member.id] > 0 && (
+                              <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: '#ef4444', display: 'inline-block', flexShrink: 0 }} title="Red flag" />
+                            )}
+                          </span>
+                        </td>
+                        <td>{member.house_church_name || '—'}</td>
+                        <td>{member.gender || '—'}</td>
+                        <td>{age !== null ? age : '—'}</td>
+                        <td>{bday}</td>
+                        <td className="col-address">
+                          {addr ? (
+                            <span className="address-truncate" title={addr}>{addr}</span>
+                          ) : '—'}
+                        </td>
+                        <td className="col-hide-mobile">{member.email || '—'}</td>
+                        <td className="col-hide-mobile">{member.phone || '—'}</td>
+                      </tr>
+                    );
+                  })
                 )}
               </tbody>
             </table>

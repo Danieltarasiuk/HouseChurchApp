@@ -9,6 +9,8 @@ interface PcoPerson {
     last_name: string;
     name: string;
     status: string;
+    gender: string | null;   // "M" or "F" or null
+    birthdate: string | null; // "YYYY-MM-DD" or null
   };
   relationships?: {
     primary_campus?: { data: { id: string } | null };
@@ -31,6 +33,8 @@ interface SyncedPerson {
   email: string;
   phone: string;
   campus_pco_id: string | null;
+  gender: string | null;
+  date_of_birth: string | null;
   address_street: string;
   address_city: string;
   address_state: string;
@@ -143,6 +147,10 @@ async function fetchAllPeople(token: string): Promise<SyncedPerson[]> {
       const addr = addressMap.get(person.id);
       const campusId = person.relationships?.primary_campus?.data?.id || null;
 
+      // Map PCO gender "M"/"F" to "Male"/"Female"
+      const rawGender = person.attributes.gender;
+      const gender = rawGender === 'M' ? 'Male' : rawGender === 'F' ? 'Female' : null;
+
       people.push({
         pco_id: person.id,
         first_name: person.attributes.first_name,
@@ -150,6 +158,8 @@ async function fetchAllPeople(token: string): Promise<SyncedPerson[]> {
         email: email.toLowerCase().trim(),
         phone,
         campus_pco_id: campusId,
+        gender,
+        date_of_birth: person.attributes.birthdate || null,
         address_street: addr?.street || '',
         address_city: addr?.city || '',
         address_state: addr?.state || '',
@@ -223,15 +233,18 @@ export async function POST() {
 
       const result = await sql(
         `INSERT INTO members (first_name, last_name, email, phone, house_church_id,
+                              gender, date_of_birth,
                               address_street, address_city, address_state, address_zip,
                               pco_id, campus_pco_id, is_active)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, true)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, true)
          ON CONFLICT (pco_id) DO UPDATE SET
            first_name = EXCLUDED.first_name,
            last_name = EXCLUDED.last_name,
            email = COALESCE(NULLIF(EXCLUDED.email, ''), members.email),
            phone = COALESCE(NULLIF(EXCLUDED.phone, ''), members.phone),
            house_church_id = COALESCE(EXCLUDED.house_church_id, members.house_church_id),
+           gender = COALESCE(EXCLUDED.gender, members.gender),
+           date_of_birth = COALESCE(EXCLUDED.date_of_birth, members.date_of_birth),
            address_street = COALESCE(NULLIF(EXCLUDED.address_street, ''), members.address_street),
            address_city = COALESCE(NULLIF(EXCLUDED.address_city, ''), members.address_city),
            address_state = COALESCE(NULLIF(EXCLUDED.address_state, ''), members.address_state),
@@ -242,6 +255,7 @@ export async function POST() {
         [
           person.first_name, person.last_name, person.email || null,
           person.phone || null, hcId,
+          person.gender || null, person.date_of_birth || null,
           person.address_street || null, person.address_city || null,
           person.address_state || null, person.address_zip || null,
           person.pco_id, person.campus_pco_id || null,
