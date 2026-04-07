@@ -80,11 +80,7 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
             user.id = result[0].id;
             (user as { role?: string }).role = result[0].role;
           } else {
-            // Only allow linking if the existing account has no password (i.e. was created via Google)
-            if (existing[0].password_hash) {
-              // Existing credential-based account — block Google sign-in to prevent takeover
-              return false;
-            }
+            // Allow Google sign-in for existing accounts (links Google to existing account)
             user.id = existing[0].id;
             (user as { role?: string }).role = existing[0].role;
           }
