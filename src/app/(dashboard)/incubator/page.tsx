@@ -71,7 +71,7 @@ export default function IncubatorPage() {
           <button
             key={i}
             className={`disc-week-tab ${weekIdx === i ? 'active' : ''}`}
-            style={weekIdx === i ? { borderColor: SECTION_COLORS[w.section], color: SECTION_COLORS[w.section] } : {}}
+            style={weekIdx === i ? { borderColor: SECTION_COLORS[w.section], background: SECTION_COLORS[w.section], color: 'white' } : {}}
             onClick={() => handleWeekChange(i)}
           >
             {t('inc.week')} {w.number}
