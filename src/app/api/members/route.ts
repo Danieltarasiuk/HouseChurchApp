@@ -12,6 +12,8 @@ export async function GET() {
     const members = await sql(
       `SELECT m.id, m.first_name, m.last_name, m.email, m.phone,
               m.house_church_id, hc.name AS house_church_name,
+              m.address_street, m.address_city, m.address_state, m.address_zip,
+              m.latitude, m.longitude,
               COALESCE(u.role, 'member') AS role
        FROM members m
        LEFT JOIN house_churches hc ON m.house_church_id = hc.id

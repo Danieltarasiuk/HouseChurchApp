@@ -1,7 +1,12 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import dynamic from 'next/dynamic';
+import { useSession } from 'next-auth/react';
 import { useLang } from '@/context/LangContext';
+import { Map as MapIcon, List } from 'lucide-react';
+
+const MemberMap = dynamic(() => import('@/components/MemberMap'), { ssr: false });
 
 interface Member {
   id: number;
@@ -11,6 +16,8 @@ interface Member {
   phone: string | null;
   role: string;
   house_church_name: string | null;
+  latitude: number | null;
+  longitude: number | null;
 }
 
 const roleLabel = (role: string, t: (k: string) => string) => {
@@ -31,9 +38,14 @@ const roleBadgeClass = (role: string) => {
 
 export default function MembersPage() {
   const { t } = useLang();
+  const { data: session } = useSession();
+  const userRole = (session?.user as { role?: string })?.role;
+  const canSeeMap = userRole === 'admin' || userRole === 'house_church_pastor';
+
   const [search, setSearch] = useState('');
   const [members, setMembers] = useState<Member[]>([]);
   const [loading, setLoading] = useState(true);
+  const [view, setView] = useState<'list' | 'map'>('list');
 
   useEffect(() => {
     fetch('/api/members')
@@ -49,12 +61,35 @@ export default function MembersPage() {
     return fullName.includes(q) || m.email.toLowerCase().includes(q);
   });
 
+  const mappableMembers = filtered.filter((m) => m.latitude && m.longitude);
+
   return (
     <div>
       <div className="page-header">
         <h2>{t('mem.title')}</h2>
         <p>{t('mem.sub')}</p>
       </div>
+
+      {/* Map view */}
+      {canSeeMap && view === 'map' && !loading && (
+        <div style={{ marginBottom: '16px' }}>
+          <MemberMap
+            members={mappableMembers.map((m) => ({
+              id: m.id,
+              first_name: m.first_name,
+              last_name: m.last_name,
+              latitude: m.latitude!,
+              longitude: m.longitude!,
+              house_church_name: m.house_church_name,
+            }))}
+          />
+          {mappableMembers.length === 0 && (
+            <p style={{ textAlign: 'center', color: 'var(--text-tertiary)', marginTop: '8px', fontSize: '13px' }}>
+              {t('mem.noAddresses')}
+            </p>
+          )}
+        </div>
+      )}
 
       <div className="card">
         <div className="card-header">
@@ -68,6 +103,15 @@ export default function MembersPage() {
               onChange={(e) => setSearch(e.target.value)}
               aria-label={t('mem.search')}
             />
+            {canSeeMap && (
+              <button
+                className={`btn ${view === 'map' ? 'btn-primary' : ''}`}
+                onClick={() => setView(view === 'list' ? 'map' : 'list')}
+                title={view === 'list' ? t('mem.showMap') : t('mem.hideMap')}
+              >
+                {view === 'list' ? <MapIcon size={16} /> : <List size={16} />}
+              </button>
+            )}
           </div>
         </div>
 

@@ -152,9 +152,11 @@ function SettingsContent() {
       }
 
       setPcoResult(
-        t('settings.pcoImportSuccess')
+        t('settings.pcoSyncSuccess')
           .replace('{imported}', String(data.imported))
           .replace('{skipped}', String(data.skipped))
+          .replace('{archived}', String(data.archived || 0))
+          .replace('{campuses}', String(data.campuses || 0))
           .replace('{total}', String(data.total))
       );
       setTimeout(() => setPcoResult(''), 8000);
@@ -234,7 +236,7 @@ function SettingsContent() {
                   disabled={pcoImporting}
                 >
                   <CloudDownload size={14} />
-                  {pcoImporting ? t('settings.pcoImporting') : t('settings.pcoImport')}
+                  {pcoImporting ? t('settings.pcoSyncing') : t('settings.pcoSync')}
                 </button>
               </>
             ) : (
