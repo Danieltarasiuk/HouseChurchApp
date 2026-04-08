@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { auth } from '@/lib/auth';
 import { sql } from '@/lib/db';
-import { geocodeMembersWithoutCoords } from '@/lib/geocode';
+import { geocodeMembersWithoutCoords, geocodeHouseChurchesWithoutCoords } from '@/lib/geocode';
 
 interface PcoPerson {
   id: string;
@@ -79,8 +79,16 @@ async function getValidToken(userId: string): Promise<string | null> {
   return data.access_token;
 }
 
-async function fetchCampuses(token: string): Promise<Map<string, string>> {
-  const campusMap = new Map<string, string>(); // pco_id -> name
+interface CampusInfo {
+  name: string;
+  street: string;
+  city: string;
+  state: string;
+  zip: string;
+}
+
+async function fetchCampuses(token: string): Promise<Map<string, CampusInfo>> {
+  const campusMap = new Map<string, CampusInfo>(); // pco_id -> campus info
   let nextUrl: string | null = 'https://api.planningcenteronline.com/people/v2/campuses?per_page=100';
 
   while (nextUrl) {
@@ -91,7 +99,14 @@ async function fetchCampuses(token: string): Promise<Map<string, string>> {
     const data = await res.json();
 
     for (const campus of data.data || []) {
-      campusMap.set(campus.id, campus.attributes.name);
+      const attrs = campus.attributes;
+      campusMap.set(campus.id, {
+        name: attrs.name,
+        street: ((attrs.street as string) || '').trim(),
+        city: ((attrs.city as string) || '').trim(),
+        state: ((attrs.state as string) || '').trim(),
+        zip: ((attrs.zip as string) || '').trim(),
+      });
     }
     nextUrl = data.links?.next || null;
   }
@@ -212,7 +227,7 @@ export async function POST() {
     // 2. Sync campuses → house_churches
     const campusToHcId = new Map<string, string>();
 
-    for (const [pcoId, campusName] of pcoCampuses) {
+    for (const [pcoId, campusInfo] of pcoCampuses) {
       const existing = await sql(
         'SELECT id FROM house_churches WHERE pco_campus_id = $1',
         [pcoId]
@@ -220,15 +235,22 @@ export async function POST() {
 
       if (existing.length > 0) {
         campusToHcId.set(pcoId, existing[0].id);
-        // Update name in case it changed
+        // Update name and address in case they changed
         await sql(
-          'UPDATE house_churches SET name = $1, campus_name = $1, is_active = true WHERE pco_campus_id = $2',
-          [campusName, pcoId]
+          `UPDATE house_churches SET name = $1, campus_name = $1, is_active = true,
+           address_street = COALESCE(NULLIF($3, ''), address_street),
+           address_city = COALESCE(NULLIF($4, ''), address_city),
+           address_state = COALESCE(NULLIF($5, ''), address_state),
+           address_zip = COALESCE(NULLIF($6, ''), address_zip)
+           WHERE pco_campus_id = $2`,
+          [campusInfo.name, pcoId, campusInfo.street, campusInfo.city, campusInfo.state, campusInfo.zip]
         );
       } else {
         const result = await sql(
-          'INSERT INTO house_churches (name, pco_campus_id, campus_name, is_active) VALUES ($1, $2, $1, true) RETURNING id',
-          [campusName, pcoId]
+          `INSERT INTO house_churches (name, pco_campus_id, campus_name,
+           address_street, address_city, address_state, address_zip, is_active)
+           VALUES ($1, $2, $1, $3, $4, $5, $6, true) RETURNING id`,
+          [campusInfo.name, pcoId, campusInfo.street || null, campusInfo.city || null, campusInfo.state || null, campusInfo.zip || null]
         );
         campusToHcId.set(pcoId, result[0].id);
       }
@@ -293,7 +315,15 @@ export async function POST() {
       archived = archivedResult.length;
     }
 
-    // 5. Batch geocode members who have address but no lat/lng
+    // 5. Batch geocode house churches that have address but no lat/lng
+    let hcGeocoded = 0;
+    try {
+      hcGeocoded = await geocodeHouseChurchesWithoutCoords();
+    } catch (e) {
+      console.error('HC geocoding batch error (non-fatal):', e);
+    }
+
+    // 6. Batch geocode members who have address but no lat/lng
     //    This runs synchronously with rate limiting (1 req/sec) so may take a while
     //    but we do it during sync since that's admin-triggered
     let geocoded = 0;
@@ -308,6 +338,7 @@ export async function POST() {
       skipped,
       archived,
       geocoded,
+      hcGeocoded,
       total: people.length,
       campuses: pcoCampuses.size,
     });
