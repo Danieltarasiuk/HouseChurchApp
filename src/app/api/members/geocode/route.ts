@@ -1,6 +1,11 @@
 import { NextResponse } from 'next/server';
 import { auth } from '@/lib/auth';
 import { sql } from '@/lib/db';
+import { buildAddress } from '@/lib/geocode';
+
+function stripUnit(street: string): string {
+  return street.replace(/,?\s*(apt|apartment|unit|suite|ste|bldg|building|fl|floor|rm|room|#)\s*.*/i, '').trim();
+}
 
 export async function POST() {
   const session = await auth();
@@ -27,9 +32,12 @@ export async function POST() {
     let geocoded = 0;
 
     for (const member of members) {
-      const address = [member.address_street, member.address_city, member.address_state, member.address_zip]
-        .filter(Boolean)
-        .join(', ');
+      const address = buildAddress(
+        stripUnit(member.address_street || ''),
+        member.address_city || '',
+        member.address_state || '',
+        member.address_zip || '',
+      );
 
       if (!address) continue;
 

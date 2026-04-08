@@ -1,12 +1,31 @@
 import { sql } from '@/lib/db';
 
 /**
+ * Strip apartment/unit/suite suffixes from a street address.
+ * Nominatim often fails when these are included.
+ * e.g. "620 NW 214th St, Apartment 5" → "620 NW 214th St"
+ *      "2319 W 60th St, Apt D210" → "2319 W 60th St"
+ */
+function stripUnit(street: string): string {
+  // Remove ", Apt ...", ", Unit ...", ", Suite ...", ", # ...", etc.
+  return street.replace(/,?\s*(apt|apartment|unit|suite|ste|bldg|building|fl|floor|rm|room|#)\s*.*/i, '').trim();
+}
+
+/**
  * Build a formatted address string with street first.
  * Result: "123 Main St, Miami, FL 33165"
  */
 export function buildAddress(street: string, city: string, state: string, zip: string): string {
   const stateZip = state && zip ? `${state} ${zip}` : state || zip;
   return [street, city, stateZip].filter(Boolean).join(', ');
+}
+
+/**
+ * Build a geocoding-friendly address by stripping unit/apt info from street.
+ */
+function buildGeocodingAddress(street: string, city: string, state: string, zip: string): string {
+  const cleanStreet = stripUnit(street);
+  return buildAddress(cleanStreet, city, state, zip);
 }
 
 /**
@@ -61,7 +80,7 @@ export async function geocodeMembersWithoutCoords(): Promise<number> {
   let geocoded = 0;
 
   for (const row of rows) {
-    const address = buildAddress(
+    const address = buildGeocodingAddress(
       row.address_street || '',
       row.address_city || '',
       row.address_state || '',
@@ -91,7 +110,7 @@ export async function geocodeMembersWithoutCoords(): Promise<number> {
  * Updates the house_churches row with lat/lng.
  */
 export function geocodeHouseChurchAsync(hcId: string, street: string, city: string, state: string, zip: string): void {
-  const address = buildAddress(street, city, state, zip);
+  const address = buildGeocodingAddress(street, city, state, zip);
   if (!address) return;
 
   // Fire and forget — don't await
@@ -128,7 +147,7 @@ export async function geocodeHouseChurchesWithoutCoords(): Promise<number> {
   let geocoded = 0;
 
   for (const row of rows) {
-    const address = buildAddress(
+    const address = buildGeocodingAddress(
       row.address_street || '',
       row.address_city || '',
       row.address_state || '',
