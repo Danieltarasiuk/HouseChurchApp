@@ -72,6 +72,28 @@ function formatAddress(m: { address_street: string | null; address_city: string 
   return parts.length > 0 ? parts.join(', ') : null;
 }
 
+type SortColumn = 'name' | 'house_church' | 'gender' | 'age' | 'birthday' | 'address' | 'email' | 'phone';
+type SortDir = 'asc' | 'desc';
+
+function birthdayKey(dob: string | null): number | null {
+  if (!dob) return null;
+  const d = parseDate(dob);
+  if (!d) return null;
+  return (d.getMonth() + 1) * 100 + d.getDate();
+}
+
+function compareSorted(a: string | number | null, b: string | number | null, dir: SortDir): number {
+  if (a == null && b == null) return 0;
+  if (a == null) return 1;  // nulls to bottom always
+  if (b == null) return -1;
+  if (typeof a === 'string' && typeof b === 'string') {
+    const cmp = a.localeCompare(b, undefined, { sensitivity: 'base' });
+    return dir === 'asc' ? cmp : -cmp;
+  }
+  const diff = (a as number) - (b as number);
+  return dir === 'asc' ? diff : -diff;
+}
+
 export default function MembersPage() {
   const { t, language } = useLang();
   const { data: session } = useSession();
@@ -83,6 +105,8 @@ export default function MembersPage() {
   const [loading, setLoading] = useState(true);
   const [showMap, setShowMap] = useState(true);
   const [redFlags, setRedFlags] = useState<Record<string, number>>({});
+  const [sortCol, setSortCol] = useState<SortColumn | null>(null);
+  const [sortDir, setSortDir] = useState<SortDir | null>(null);
 
   useEffect(() => {
     fetch('/api/members')
@@ -108,6 +132,60 @@ export default function MembersPage() {
     const fullName = `${m.first_name} ${m.last_name}`.toLowerCase();
     return fullName.includes(q) || m.email?.toLowerCase().includes(q);
   });
+
+  const cycleSort = (col: SortColumn) => {
+    if (sortCol !== col) { setSortCol(col); setSortDir('asc'); }
+    else if (sortDir === 'asc') { setSortDir('desc'); }
+    else { setSortCol(null); setSortDir(null); }
+  };
+
+  const sortIndicator = (col: SortColumn) => {
+    if (sortCol === col) return sortDir === 'asc' ? ' ↑' : ' ↓';
+    return <span style={{ opacity: 0.3, marginLeft: '2px' }}> ↕</span>;
+  };
+
+  const sorted = useMemo(() => {
+    if (!sortCol || !sortDir) return filtered;
+    return [...filtered].sort((a, b) => {
+      let va: string | number | null;
+      let vb: string | number | null;
+      switch (sortCol) {
+        case 'name':
+          va = `${a.first_name} ${a.last_name}`;
+          vb = `${b.first_name} ${b.last_name}`;
+          break;
+        case 'house_church':
+          va = a.house_church_name;
+          vb = b.house_church_name;
+          break;
+        case 'gender':
+          va = a.gender;
+          vb = b.gender;
+          break;
+        case 'age':
+          va = a.date_of_birth ? calcAge(a.date_of_birth) : null;
+          vb = b.date_of_birth ? calcAge(b.date_of_birth) : null;
+          break;
+        case 'birthday':
+          va = birthdayKey(a.date_of_birth);
+          vb = birthdayKey(b.date_of_birth);
+          break;
+        case 'address':
+          va = formatAddress(a);
+          vb = formatAddress(b);
+          break;
+        case 'email':
+          va = a.email || null;
+          vb = b.email || null;
+          break;
+        case 'phone':
+          va = a.phone;
+          vb = b.phone;
+          break;
+      }
+      return compareSorted(va!, vb!, sortDir);
+    });
+  }, [filtered, sortCol, sortDir]);
 
   // Build unique HC IDs for deterministic coloring
   const allHCIds = useMemo(() => {
@@ -137,7 +215,7 @@ export default function MembersPage() {
     : 'No location data available. Sync from Planning Center to import addresses.';
 
   return (
-    <div>
+    <div className="members-page">
       <div className="page-header">
         <h2>{t('mem.title')}</h2>
         <p>{t('mem.sub')}</p>
@@ -150,7 +228,7 @@ export default function MembersPage() {
         </div>
       )}
 
-      <div className="card">
+      <div className="card members-table-wrap">
         <div className="card-header">
           <div className="card-title">{t('mem.title')} ({filtered.length})</div>
           <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
@@ -183,25 +261,35 @@ export default function MembersPage() {
             <table>
               <thead>
                 <tr>
-                  <th>{t('common.name')}</th>
-                  <th>{t('mem.houseChurch')}</th>
-                  <th>{t('mem.gender')}</th>
-                  <th>{t('mem.age')}</th>
-                  <th>{t('mem.birthday')}</th>
-                  <th className="col-address">{t('mem.address')}</th>
-                  <th className="col-hide-mobile">{t('auth.email')}</th>
-                  <th className="col-hide-mobile">{t('mem.phone')}</th>
+                  {([
+                    ['name', t('common.name'), ''],
+                    ['house_church', t('mem.houseChurch'), ''],
+                    ['gender', t('mem.gender'), ''],
+                    ['age', t('mem.age'), ''],
+                    ['birthday', t('mem.birthday'), ''],
+                    ['address', t('mem.address'), 'col-address'],
+                    ['email', t('auth.email'), 'col-hide-mobile'],
+                    ['phone', t('mem.phone'), 'col-hide-mobile'],
+                  ] as [SortColumn, string, string][]).map(([col, label, cls]) => (
+                    <th
+                      key={col}
+                      className={`sortable-th ${cls}`}
+                      onClick={() => cycleSort(col)}
+                    >
+                      {label}{sortIndicator(col)}
+                    </th>
+                  ))}
                 </tr>
               </thead>
               <tbody>
-                {filtered.length === 0 ? (
+                {sorted.length === 0 ? (
                   <tr>
                     <td colSpan={8} style={{ textAlign: 'center', color: 'var(--text-tertiary)', padding: '24px' }}>
                       {t('common.noResults')}
                     </td>
                   </tr>
                 ) : (
-                  filtered.map((member) => {
+                  sorted.map((member) => {
                     const age = member.date_of_birth ? calcAge(member.date_of_birth) : null;
                     const bday = member.date_of_birth ? formatBirthday(member.date_of_birth, language) : '—';
                     const addr = formatAddress(member);

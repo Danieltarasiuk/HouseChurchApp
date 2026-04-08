@@ -906,9 +906,53 @@ tr:hover td {
     height: 300px;
   }
 
-  /* Members map: remove negative margins on mobile */
-  .members-map-wrap {
+  /* Members: remove negative margins on mobile */
+  .members-map-wrap,
+  .members-table-wrap {
     margin-left: 0 !important;
     margin-right: 0 !important;
+  }
+}
+
+/* Members page: full-width override — bust through max-width */
+.main-content:has(.members-page) {
+  max-width: none;
+}
+.members-page {
+  margin-left: -40px;
+  margin-right: -40px;
+  padding-left: 40px;
+  padding-right: 40px;
+}
+.members-page .members-map-wrap,
+.members-page .members-table-wrap {
+  margin-left: -40px;
+  margin-right: -40px;
+}
+.members-page .members-table-wrap {
+  border-radius: 0;
+}
+
+/* Sortable table headers */
+.sortable-th {
+  cursor: pointer;
+  user-select: none;
+  white-space: nowrap;
+}
+.sortable-th:hover {
+  color: var(--accent);
+}
+
+@media (max-width: 768px) {
+  .members-page {
+    margin-left: 0;
+    margin-right: 0;
+    padding-left: 0;
+    padding-right: 0;
+  }
+  .members-page .members-map-wrap,
+  .members-page .members-table-wrap {
+    margin-left: 0;
+    margin-right: 0;
   }
 }
