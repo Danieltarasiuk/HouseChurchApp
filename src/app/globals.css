@@ -698,7 +698,7 @@ tr:hover td {
 .disc-action p { font-size: 14px; line-height: 1.55; color: var(--text-secondary); white-space: pre-line; }
 
 /* Scripture Verse Modal */
-.verse-overlay { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.5); display: flex; align-items: center; justify-content: center; z-index: 100; padding: 20px; }
+.verse-overlay { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.5); display: flex; align-items: center; justify-content: center; z-index: 1050; padding: 20px; }
 .verse-modal { background: var(--surface); border-radius: var(--radius-lg); width: 100%; max-width: 520px; max-height: 80vh; overflow-y: auto; box-shadow: var(--shadow-lg); }
 .verse-modal-header { display: flex; justify-content: space-between; align-items: center; padding: 20px 24px; border-bottom: 1px solid var(--border); }
 .verse-modal-header h3 { font-size: 18px; font-weight: 700; color: var(--text-primary); }
