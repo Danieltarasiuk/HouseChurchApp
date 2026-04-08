@@ -16,6 +16,7 @@ interface PastoralMember {
   house_church_id: string | null;
   house_church_name: string | null;
   user_id: string | null;
+  date_of_birth: string | null;
   last_meetings: Record<string, string>;
   last_contacted: string | null;
   red_flag_count: number;
@@ -100,6 +101,16 @@ function daysSince(dateStr: string | null): number {
   return Math.floor((now.getTime() - d.getTime()) / (1000 * 60 * 60 * 24));
 }
 
+function calcAge(dob: string): number | null {
+  const d = parseDate(dob);
+  if (!d || isNaN(d.getTime())) return null;
+  const today = new Date();
+  let age = today.getFullYear() - d.getFullYear();
+  const monthDiff = today.getMonth() - d.getMonth();
+  if (monthDiff < 0 || (monthDiff === 0 && today.getDate() < d.getDate())) age--;
+  return age > 120 ? null : age;
+}
+
 function cellColor(dateStr: string | null, hasAnyMeeting: boolean): string {
   if (!dateStr && !hasAnyMeeting) return '#f3f4f6';
   const days = daysSince(dateStr);
@@ -125,6 +136,7 @@ export default function PastoralPage() {
   const [loading, setLoading] = useState(true);
   const [hcFilter, setHcFilter] = useState<string>('');
   const [search, setSearch] = useState('');
+  const [showMinors, setShowMinors] = useState(false);
   const [selectedMember, setSelectedMember] = useState<PastoralMember | null>(null);
   const [verseModal, setVerseModal] = useState<{ reference: string } | null>(null);
 
@@ -365,8 +377,12 @@ export default function PastoralPage() {
   };
 
   const filtered = members.filter(m => {
-    if (!search) return true;
-    return m.name.toLowerCase().includes(search.toLowerCase());
+    if (search && !m.name.toLowerCase().includes(search.toLowerCase())) return false;
+    if (!showMinors && m.date_of_birth) {
+      const age = calcAge(m.date_of_birth);
+      if (age !== null && age < 18) return false;
+    }
+    return true;
   });
 
   const selectedTopic = PASTORAL_TOPICS.find(tp => tp.key === meetingTopic);
@@ -395,6 +411,10 @@ export default function PastoralPage() {
           {churches.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
         </select>
         <input className="form-input" style={{ maxWidth: '260px' }} placeholder={t('pastoral.searchMembers')} value={search} onChange={e => setSearch(e.target.value)} />
+        <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '13px', cursor: 'pointer', whiteSpace: 'nowrap' }}>
+          <input type="checkbox" checked={showMinors} onChange={() => setShowMinors(!showMinors)} />
+          {t('mem.showMinors')}
+        </label>
       </div>
 
       {loading ? (

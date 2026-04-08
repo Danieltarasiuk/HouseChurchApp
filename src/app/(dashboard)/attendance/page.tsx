@@ -9,11 +9,25 @@ interface Member {
   last_name: string;
   house_church_id: string | null;
   house_church_name: string | null;
+  date_of_birth: string | null;
 }
 
 interface HouseChurch {
   id: string;
   name: string;
+}
+
+function calcAge(dob: string): number | null {
+  const parts = dob.split('-');
+  if (parts.length !== 3) return null;
+  const [y, m, day] = parts.map(Number);
+  if (!y || !m || !day) return null;
+  const birth = new Date(y, m - 1, day);
+  const today = new Date();
+  let age = today.getFullYear() - birth.getFullYear();
+  const monthDiff = today.getMonth() - birth.getMonth();
+  if (monthDiff < 0 || (monthDiff === 0 && today.getDate() < birth.getDate())) age--;
+  return age > 120 ? null : age;
 }
 
 export default function AttendancePage() {
@@ -26,6 +40,7 @@ export default function AttendancePage() {
   const [churches, setChurches] = useState<HouseChurch[]>([]);
   const [selectedHcId, setSelectedHcId] = useState<string>('');
   const [attendance, setAttendance] = useState<Record<string, boolean>>({});
+  const [showMinors, setShowMinors] = useState(false);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -43,10 +58,15 @@ export default function AttendancePage() {
       .finally(() => setLoading(false));
   }, []);
 
-  // Filter members: for HC attendance, show only members of selected HC
-  const members = eventType === 'house_church' && selectedHcId
-    ? allMembers.filter(m => m.house_church_id === selectedHcId)
-    : allMembers;
+  // Filter members: by HC when applicable, and by minors toggle
+  const members = allMembers.filter(m => {
+    if (eventType === 'house_church' && selectedHcId && m.house_church_id !== selectedHcId) return false;
+    if (!showMinors && m.date_of_birth) {
+      const age = calcAge(m.date_of_birth);
+      if (age !== null && age < 18) return false;
+    }
+    return true;
+  });
 
   const presentCount = Object.values(attendance).filter(Boolean).length;
   const totalCount = members.length;
@@ -140,6 +160,11 @@ export default function AttendancePage() {
               onChange={(e) => handleDateChange(e.target.value)}
             />
           </div>
+
+          <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '13px', cursor: 'pointer', whiteSpace: 'nowrap', alignSelf: 'flex-end', paddingBottom: '8px' }}>
+            <input type="checkbox" checked={showMinors} onChange={() => setShowMinors(!showMinors)} />
+            {t('mem.showMinors')}
+          </label>
 
           {eventType === 'house_church' && (
             <div className="form-group" style={{ flex: 1, minWidth: '200px' }}>

@@ -145,6 +145,7 @@ export default function HouseChurchDetailPage() {
   const [showEditModal, setShowEditModal] = useState(false);
   const [sortCol, setSortCol] = useState<SortColumn | null>(null);
   const [sortDir, setSortDir] = useState<SortDir | null>(null);
+  const [showMinors, setShowMinors] = useState(false);
 
   const loadData = useCallback(() => {
     Promise.all([
@@ -216,9 +217,18 @@ export default function HouseChurchDetailPage() {
     return <span style={{ opacity: 0.3, marginLeft: '2px' }}> ↕</span>;
   };
 
+  const filteredMembers = useMemo(() => {
+    if (showMinors) return hcMembers;
+    return hcMembers.filter(m => {
+      if (!m.date_of_birth) return true;
+      const age = calcAge(m.date_of_birth);
+      return age === null || age >= 18;
+    });
+  }, [hcMembers, showMinors]);
+
   const sortedMembers = useMemo(() => {
-    if (!sortCol || !sortDir) return hcMembers;
-    return [...hcMembers].sort((a, b) => {
+    if (!sortCol || !sortDir) return filteredMembers;
+    return [...filteredMembers].sort((a, b) => {
       let va: string | number | null;
       let vb: string | number | null;
       switch (sortCol) {
@@ -253,7 +263,7 @@ export default function HouseChurchDetailPage() {
       }
       return compareSorted(va!, vb!, sortDir);
     });
-  }, [hcMembers, sortCol, sortDir]);
+  }, [filteredMembers, sortCol, sortDir]);
 
   if (loading) {
     return (
@@ -339,10 +349,14 @@ export default function HouseChurchDetailPage() {
 
       {/* Members Table */}
       <div className="card hc-detail-table-wrap" style={{ marginTop: '20px' }}>
-        <div className="card-header">
+        <div className="card-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <h3 className="card-title">
-            {t('hc.members')} ({hcMembers.length})
+            {t('hc.members')} ({filteredMembers.length})
           </h3>
+          <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '13px', cursor: 'pointer', whiteSpace: 'nowrap' }}>
+            <input type="checkbox" checked={showMinors} onChange={() => setShowMinors(!showMinors)} />
+            {t('mem.showMinors')}
+          </label>
         </div>
 
         <div className="table-wrap">

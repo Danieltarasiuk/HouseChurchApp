@@ -107,6 +107,7 @@ export default function MembersPage() {
   const [redFlags, setRedFlags] = useState<Record<string, number>>({});
   const [sortCol, setSortCol] = useState<SortColumn | null>(null);
   const [sortDir, setSortDir] = useState<SortDir | null>(null);
+  const [showMinors, setShowMinors] = useState(false);
 
   useEffect(() => {
     fetch('/api/members')
@@ -130,7 +131,12 @@ export default function MembersPage() {
   const filtered = members.filter((m) => {
     const q = search.toLowerCase();
     const fullName = `${m.first_name} ${m.last_name}`.toLowerCase();
-    return fullName.includes(q) || m.email?.toLowerCase().includes(q);
+    if (!fullName.includes(q) && !m.email?.toLowerCase().includes(q)) return false;
+    if (!showMinors && m.date_of_birth) {
+      const age = calcAge(m.date_of_birth);
+      if (age !== null && age < 18) return false;
+    }
+    return true;
   });
 
   const cycleSort = (col: SortColumn) => {
@@ -232,6 +238,10 @@ export default function MembersPage() {
         <div className="card-header">
           <div className="card-title">{t('mem.title')} ({filtered.length})</div>
           <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
+            <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '13px', cursor: 'pointer', whiteSpace: 'nowrap' }}>
+              <input type="checkbox" checked={showMinors} onChange={() => setShowMinors(!showMinors)} />
+              {t('mem.showMinors')}
+            </label>
             <input
               type="text"
               className="form-input"
