@@ -951,3 +951,33 @@ tr:hover td {
     margin-right: 0;
   }
 }
+
+/* HC detail page: full-width override — same pattern as members page */
+.main-content:has(.hc-detail-page) {
+  max-width: none;
+  overflow-x: hidden;
+}
+.hc-detail-page .hc-detail-card-wrap,
+.hc-detail-page .hc-detail-map-wrap,
+.hc-detail-page .hc-detail-table-wrap {
+  margin-left: -40px;
+  margin-right: -40px;
+}
+.hc-detail-page .hc-detail-table-wrap {
+  border-radius: 0;
+}
+
+@media (max-width: 768px) {
+  .hc-detail-page {
+    margin-left: 0;
+    margin-right: 0;
+    padding-left: 0;
+    padding-right: 0;
+  }
+  .hc-detail-page .hc-detail-card-wrap,
+  .hc-detail-page .hc-detail-map-wrap,
+  .hc-detail-page .hc-detail-table-wrap {
+    margin-left: 0;
+    margin-right: 0;
+  }
+}

@@ -106,6 +106,28 @@ function formatMemberAddress(m: { address_street: string | null; address_city: s
   return parts.length > 0 ? parts.join(', ') : null;
 }
 
+type SortColumn = 'name' | 'gender' | 'age' | 'birthday' | 'address' | 'email' | 'phone';
+type SortDir = 'asc' | 'desc';
+
+function birthdayKey(dob: string | null): number | null {
+  if (!dob) return null;
+  const d = parseDate(dob);
+  if (!d) return null;
+  return (d.getMonth() + 1) * 100 + d.getDate();
+}
+
+function compareSorted(a: string | number | null, b: string | number | null, dir: SortDir): number {
+  if (a == null && b == null) return 0;
+  if (a == null) return 1;
+  if (b == null) return -1;
+  if (typeof a === 'string' && typeof b === 'string') {
+    const cmp = a.localeCompare(b, undefined, { sensitivity: 'base' });
+    return dir === 'asc' ? cmp : -cmp;
+  }
+  const diff = (a as number) - (b as number);
+  return dir === 'asc' ? diff : -diff;
+}
+
 export default function HouseChurchDetailPage() {
   const { t, language } = useLang();
   const router = useRouter();
@@ -121,6 +143,8 @@ export default function HouseChurchDetailPage() {
   const [hcMembers, setHcMembers] = useState<Member[]>([]);
   const [loading, setLoading] = useState(true);
   const [showEditModal, setShowEditModal] = useState(false);
+  const [sortCol, setSortCol] = useState<SortColumn | null>(null);
+  const [sortDir, setSortDir] = useState<SortDir | null>(null);
 
   const loadData = useCallback(() => {
     Promise.all([
@@ -181,6 +205,56 @@ export default function HouseChurchDetailPage() {
     return markers;
   }, [church, hcMembers]);
 
+  const cycleSort = (col: SortColumn) => {
+    if (sortCol !== col) { setSortCol(col); setSortDir('asc'); }
+    else if (sortDir === 'asc') { setSortDir('desc'); }
+    else { setSortCol(null); setSortDir(null); }
+  };
+
+  const sortIndicator = (col: SortColumn) => {
+    if (sortCol === col) return sortDir === 'asc' ? ' ↑' : ' ↓';
+    return <span style={{ opacity: 0.3, marginLeft: '2px' }}> ↕</span>;
+  };
+
+  const sortedMembers = useMemo(() => {
+    if (!sortCol || !sortDir) return hcMembers;
+    return [...hcMembers].sort((a, b) => {
+      let va: string | number | null;
+      let vb: string | number | null;
+      switch (sortCol) {
+        case 'name':
+          va = `${a.first_name} ${a.last_name}`;
+          vb = `${b.first_name} ${b.last_name}`;
+          break;
+        case 'gender':
+          va = a.gender;
+          vb = b.gender;
+          break;
+        case 'age':
+          va = a.date_of_birth ? calcAge(a.date_of_birth) : null;
+          vb = b.date_of_birth ? calcAge(b.date_of_birth) : null;
+          break;
+        case 'birthday':
+          va = birthdayKey(a.date_of_birth);
+          vb = birthdayKey(b.date_of_birth);
+          break;
+        case 'address':
+          va = formatMemberAddress(a);
+          vb = formatMemberAddress(b);
+          break;
+        case 'email':
+          va = a.email || null;
+          vb = b.email || null;
+          break;
+        case 'phone':
+          va = a.phone;
+          vb = b.phone;
+          break;
+      }
+      return compareSorted(va!, vb!, sortDir);
+    });
+  }, [hcMembers, sortCol, sortDir]);
+
   if (loading) {
     return (
       <div>
@@ -212,7 +286,7 @@ export default function HouseChurchDetailPage() {
   const addr = formatAddress(church);
 
   return (
-    <div>
+    <div className="hc-detail-page">
       <div className="page-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <button className="btn btn-ghost" onClick={() => router.push('/house-churches')}>
           <ArrowLeft size={16} /> {t('hc.back')}
@@ -225,7 +299,7 @@ export default function HouseChurchDetailPage() {
       </div>
 
       {/* HC Info Card */}
-      <div className="card">
+      <div className="card hc-detail-card-wrap">
         <div className="card-header">
           <h2 className="card-title">{church.name}</h2>
           {church.campus_name && (
@@ -255,7 +329,7 @@ export default function HouseChurchDetailPage() {
       </div>
 
       {/* Map */}
-      <div style={{ marginTop: '20px', borderRadius: 'var(--radius-md)', overflow: 'hidden' }}>
+      <div className="hc-detail-map-wrap" style={{ marginTop: '20px', overflow: 'hidden' }}>
         <MapComponent
           markers={mapMarkers}
           height="320px"
@@ -264,7 +338,7 @@ export default function HouseChurchDetailPage() {
       </div>
 
       {/* Members Table */}
-      <div className="card" style={{ marginTop: '20px' }}>
+      <div className="card hc-detail-table-wrap" style={{ marginTop: '20px' }}>
         <div className="card-header">
           <h3 className="card-title">
             {t('hc.members')} ({hcMembers.length})
@@ -275,24 +349,34 @@ export default function HouseChurchDetailPage() {
           <table>
             <thead>
               <tr>
-                <th>{t('common.name')}</th>
-                <th>{t('mem.gender')}</th>
-                <th>{t('mem.age')}</th>
-                <th>{t('mem.birthday')}</th>
-                <th className="col-address">{t('mem.address')}</th>
-                <th className="col-hide-mobile">{t('auth.email')}</th>
-                <th className="col-hide-mobile">{t('mem.phone')}</th>
+                {([
+                  ['name', t('common.name'), ''],
+                  ['gender', t('mem.gender'), ''],
+                  ['age', t('mem.age'), ''],
+                  ['birthday', t('mem.birthday'), ''],
+                  ['address', t('mem.address'), 'col-address'],
+                  ['email', t('auth.email'), 'col-hide-mobile'],
+                  ['phone', t('mem.phone'), 'col-hide-mobile'],
+                ] as [SortColumn, string, string][]).map(([col, label, cls]) => (
+                  <th
+                    key={col}
+                    className={`sortable-th ${cls}`}
+                    onClick={() => cycleSort(col)}
+                  >
+                    {label}{sortIndicator(col)}
+                  </th>
+                ))}
               </tr>
             </thead>
             <tbody>
-              {hcMembers.length === 0 ? (
+              {sortedMembers.length === 0 ? (
                 <tr>
                   <td colSpan={7} style={{ textAlign: 'center', color: 'var(--text-tertiary)', padding: '24px' }}>
                     {t('hc.noMembers')}
                   </td>
                 </tr>
               ) : (
-                hcMembers.map((m) => {
+                sortedMembers.map((m) => {
                   const age = m.date_of_birth ? calcAge(m.date_of_birth) : null;
                   const bday = m.date_of_birth ? formatBirthday(m.date_of_birth, language) : '—';
                   const mAddr = formatMemberAddress(m);
