@@ -133,6 +133,10 @@ export default function PastoralPage() {
   const [panelMeetings, setPanelMeetings] = useState<Meeting[]>([]);
   const [panelPrayers, setPanelPrayers] = useState<PrayerReq[]>([]);
   const [panelNotes, setPanelNotes] = useState<PastoralNote[]>([]);
+  const [panelAttendance, setPanelAttendance] = useState<{
+    sunday_service: { dates: string[]; present: string[] };
+    house_church: { dates: string[]; present: string[] };
+  } | null>(null);
   const [panelLoading, setPanelLoading] = useState(false);
 
   // Meeting form
@@ -209,7 +213,8 @@ export default function PastoralPage() {
         ? fetch('/api/prayer').then(r => r.json())
         : Promise.resolve({ prayers: [] }),
       fetch(`/api/pastoral/notes?member_id=${member.id}`).then(r => r.json()),
-    ]).then(([flagData, meetingData, prayerData, noteData]) => {
+      fetch(`/api/attendance?member_id=${member.id}&limit=10`).then(r => r.json()).catch(() => null),
+    ]).then(([flagData, meetingData, prayerData, noteData, attendanceData]) => {
       setPanelFlags(flagData.flags || []);
       setPanelMeetings(meetingData.meetings || []);
       // Filter prayers for this member
@@ -218,6 +223,7 @@ export default function PastoralPage() {
       );
       setPanelPrayers(memberPrayers);
       setPanelNotes(noteData.notes || []);
+      setPanelAttendance(attendanceData);
     }).catch(() => {})
       .finally(() => setPanelLoading(false));
   };
@@ -486,6 +492,52 @@ export default function PastoralPage() {
               <div style={{ padding: '40px', textAlign: 'center', color: 'var(--text-tertiary)' }}>{t('dashboard.loading')}</div>
             ) : (
               <div className="pastoral-panel-body">
+                {/* Attendance Section */}
+                {panelAttendance && (
+                  <div style={{ marginBottom: '24px' }}>
+                    <h4 style={{ margin: '0 0 12px 0' }}>{t('pastoral.attendance')}</h4>
+                    {(['sunday_service', 'house_church'] as const).map(type => {
+                      const data = panelAttendance[type];
+                      if (!data || data.dates.length === 0) return null;
+                      const label = type === 'sunday_service'
+                        ? t('pastoral.sundayGathering')
+                        : t('pastoral.houseChurchAttendance');
+                      // Reverse so oldest is on left, newest on right
+                      const sortedDates = [...data.dates].reverse();
+                      return (
+                        <div key={type} style={{ marginBottom: '10px' }}>
+                          <span style={{ fontSize: '13px', fontWeight: 600, display: 'block', marginBottom: '4px' }}>
+                            {label}
+                          </span>
+                          <div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap' }}>
+                            {sortedDates.map(dateStr => {
+                              const isPresent = data.present.includes(dateStr);
+                              const parts = dateStr.split('-');
+                              const dd = parts[2];
+                              const mm = parts[1];
+                              return (
+                                <div key={dateStr} style={{
+                                  width: '36px', textAlign: 'center', fontSize: '10px',
+                                  border: '1px solid var(--border)', borderRadius: '4px',
+                                  padding: '2px 0',
+                                }}>
+                                  <div style={{ color: 'var(--text-tertiary)' }}>{dd}/{mm}</div>
+                                  <div style={{
+                                    fontSize: '14px', fontWeight: 600,
+                                    color: isPresent ? '#22c55e' : '#dc2626',
+                                  }}>
+                                    {isPresent ? '\u2713' : '\u2717'}
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+
                 {/* Flags Section */}
                 <div style={{ marginBottom: '24px' }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>

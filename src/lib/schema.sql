@@ -62,6 +62,7 @@ CREATE TABLE IF NOT EXISTS attendance (
   house_church_id UUID REFERENCES house_churches(id),
   member_id UUID REFERENCES members(id),
   date DATE NOT NULL,
+  attendance_type VARCHAR(20) CHECK (attendance_type IN ('sunday_service', 'house_church')),
   present BOOLEAN DEFAULT true,
   notes TEXT,
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
@@ -157,6 +158,8 @@ CREATE INDEX IF NOT EXISTS idx_members_user_id ON members(user_id);
 CREATE INDEX IF NOT EXISTS idx_members_pco_id ON members(pco_id);
 CREATE INDEX IF NOT EXISTS idx_attendance_date ON attendance(date);
 CREATE INDEX IF NOT EXISTS idx_attendance_house_church ON attendance(house_church_id);
+CREATE INDEX IF NOT EXISTS idx_attendance_member ON attendance(member_id);
+CREATE INDEX IF NOT EXISTS idx_attendance_type ON attendance(attendance_type);
 CREATE INDEX IF NOT EXISTS idx_discipleship_user ON discipleship_progress(user_id);
 CREATE INDEX IF NOT EXISTS idx_incubator_user ON incubator_progress(user_id);
 CREATE INDEX IF NOT EXISTS idx_prayer_house_church ON prayer_requests(house_church_id);

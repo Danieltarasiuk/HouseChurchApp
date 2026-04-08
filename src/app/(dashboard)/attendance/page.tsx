@@ -41,11 +41,35 @@ export default function AttendancePage() {
     setAttendance((prev) => ({ ...prev, [id]: !prev[id] }));
   };
 
-  const handleSave = () => {
-    const msg = t('att.saved')
-      .replace('{present}', String(presentCount))
-      .replace('{total}', String(totalCount));
-    alert(msg);
+  const handleSave = async () => {
+    const records = members.map((m) => ({
+      member_id: m.id,
+      present: attendance[m.id] ?? false,
+    }));
+
+    try {
+      const res = await fetch('/api/attendance', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          date,
+          attendance_type: eventType,
+          house_church_id: null,
+          records,
+        }),
+      });
+
+      if (res.ok) {
+        const msg = t('att.saved')
+          .replace('{present}', String(presentCount))
+          .replace('{total}', String(totalCount));
+        alert(msg);
+      } else {
+        alert(t('att.saveError'));
+      }
+    } catch {
+      alert(t('att.saveError'));
+    }
   };
 
   const resetAttendance = () => {
