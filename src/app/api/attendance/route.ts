@@ -25,26 +25,19 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Invalid attendance_type' }, { status: 400 });
     }
 
-    // Delete existing records for this date + type + hc (idempotent upsert)
-    if (house_church_id) {
-      await sql(
-        `DELETE FROM attendance WHERE date = $1 AND attendance_type = $2 AND house_church_id = $3`,
-        [date, attendance_type, house_church_id]
-      );
-    } else {
-      await sql(
-        `DELETE FROM attendance WHERE date = $1 AND attendance_type = $2 AND house_church_id IS NULL`,
-        [date, attendance_type]
-      );
-    }
-
-    // Bulk insert all records (both present and absent)
+    // Only insert records for members marked present.
+    // "Absent" is inferred: if attendance was taken for this scope (date+type+hc)
+    // but no record exists for a member, they were absent.
+    // Using ON CONFLICT to preserve existing present records — once present, stays present.
+    const presentRecords = records.filter((r: { member_id: string; present: boolean }) => r.present);
     let count = 0;
-    for (const record of records) {
+
+    for (const record of presentRecords) {
       await sql(
         `INSERT INTO attendance (house_church_id, member_id, date, attendance_type, present)
-         VALUES ($1, $2, $3, $4, $5)`,
-        [house_church_id || null, record.member_id, date, attendance_type, record.present]
+         VALUES ($1, $2, $3, $4, true)
+         ON CONFLICT (member_id, date, attendance_type) DO NOTHING`,
+        [house_church_id || null, record.member_id, date, attendance_type]
       );
       count++;
     }
@@ -75,43 +68,72 @@ export async function GET(req: NextRequest) {
   const limit = parseInt(req.nextUrl.searchParams.get('limit') || '10', 10);
 
   try {
+    // Look up member's house_church_id for scoping HC attendance
+    const memberRows = await sql(
+      'SELECT house_church_id FROM members WHERE id = $1',
+      [memberId]
+    );
+    const memberHcId = memberRows[0]?.house_church_id || null;
+
     const result: Record<string, { dates: string[]; present: string[] }> = {};
 
-    for (const type of ['sunday_service', 'house_church'] as const) {
-      // Get last N distinct dates where attendance was taken for anyone
+    const formatDate = (r: Record<string, unknown>) => {
+      const d = r.date;
+      return d instanceof Date ? d.toISOString().split('T')[0] : String(d).split('T')[0];
+    };
+
+    // --- Sunday Service: any attendance record for this type = church met that day ---
+    {
       const dateRows = await sql(
         `SELECT DISTINCT date FROM attendance
-         WHERE attendance_type = $1
+         WHERE attendance_type = 'sunday_service'
          ORDER BY date DESC
-         LIMIT $2`,
-        [type, limit]
+         LIMIT $1`,
+        [limit]
       );
-
-      const dates = dateRows.map((r) => {
-        const d = r.date;
-        return d instanceof Date ? d.toISOString().split('T')[0] : String(d).split('T')[0];
-      });
+      const dates = dateRows.map(formatDate);
 
       if (dates.length === 0) {
-        result[type] = { dates: [], present: [] };
-        continue;
+        result.sunday_service = { dates: [], present: [] };
+      } else {
+        const ph = dates.map((_, i) => `$${i + 2}`).join(',');
+        const presentRows = await sql(
+          `SELECT date FROM attendance
+           WHERE member_id = $1 AND attendance_type = 'sunday_service'
+             AND date IN (${ph})`,
+          [memberId, ...dates]
+        );
+        result.sunday_service = { dates, present: presentRows.map(formatDate) };
       }
+    }
 
-      // Check which of those dates this member was present
-      const placeholders = dates.map((_, i) => `$${i + 3}`).join(',');
-      const presentRows = await sql(
-        `SELECT date FROM attendance
-         WHERE member_id = $1 AND attendance_type = $2 AND present = true
-           AND date IN (${placeholders})`,
-        [memberId, type, ...dates]
-      );
+    // --- House Church: only dates where THIS member's HC had attendance ---
+    {
+      if (!memberHcId) {
+        result.house_church = { dates: [], present: [] };
+      } else {
+        const dateRows = await sql(
+          `SELECT DISTINCT date FROM attendance
+           WHERE attendance_type = 'house_church' AND house_church_id = $1
+           ORDER BY date DESC
+           LIMIT $2`,
+          [memberHcId, limit]
+        );
+        const dates = dateRows.map(formatDate);
 
-      const presentDates = presentRows.map((r) => {
-        const d = r.date;
-        return d instanceof Date ? d.toISOString().split('T')[0] : String(d).split('T')[0];
-      });
-
-      result[type] = { dates, present: presentDates };
+        if (dates.length === 0) {
+          result.house_church = { dates: [], present: [] };
+        } else {
+          const ph = dates.map((_, i) => `$${i + 2}`).join(',');
+          const presentRows = await sql(
+            `SELECT date FROM attendance
+             WHERE member_id = $1 AND attendance_type = 'house_church'
+               AND date IN (${ph})`,
+            [memberId, ...dates]
+          );
+          result.house_church = { dates, present: presentRows.map(formatDate) };
+        }
+      }
     }
 
     return NextResponse.json(result);

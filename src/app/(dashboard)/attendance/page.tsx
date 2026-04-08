@@ -4,10 +4,16 @@ import { useState, useEffect } from 'react';
 import { useLang } from '@/context/LangContext';
 
 interface Member {
-  id: number;
+  id: string;
   first_name: string;
   last_name: string;
+  house_church_id: string | null;
   house_church_name: string | null;
+}
+
+interface HouseChurch {
+  id: string;
+  name: string;
 }
 
 export default function AttendancePage() {
@@ -16,28 +22,36 @@ export default function AttendancePage() {
   const today = new Date().toISOString().split('T')[0];
   const [eventType, setEventType] = useState('sunday_service');
   const [date, setDate] = useState(today);
-  const [members, setMembers] = useState<Member[]>([]);
-  const [attendance, setAttendance] = useState<Record<number, boolean>>({});
+  const [allMembers, setAllMembers] = useState<Member[]>([]);
+  const [churches, setChurches] = useState<HouseChurch[]>([]);
+  const [selectedHcId, setSelectedHcId] = useState<string>('');
+  const [attendance, setAttendance] = useState<Record<string, boolean>>({});
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    fetch('/api/members')
-      .then((res) => res.json())
-      .then((data) => {
-        const mems = data.members || [];
-        setMembers(mems);
-        const initial: Record<number, boolean> = {};
-        mems.forEach((m: Member) => { initial[m.id] = false; });
-        setAttendance(initial);
-      })
-      .catch(() => {})
+    Promise.all([
+      fetch('/api/members').then(r => r.json()),
+      fetch('/api/house-churches').then(r => r.json()),
+    ]).then(([memData, hcData]) => {
+      const mems = memData.members || [];
+      setAllMembers(mems);
+      setChurches(hcData.churches || []);
+      const initial: Record<string, boolean> = {};
+      mems.forEach((m: Member) => { initial[m.id] = false; });
+      setAttendance(initial);
+    }).catch(() => {})
       .finally(() => setLoading(false));
   }, []);
+
+  // Filter members: for HC attendance, show only members of selected HC
+  const members = eventType === 'house_church' && selectedHcId
+    ? allMembers.filter(m => m.house_church_id === selectedHcId)
+    : allMembers;
 
   const presentCount = Object.values(attendance).filter(Boolean).length;
   const totalCount = members.length;
 
-  const toggleMember = (id: number) => {
+  const toggleMember = (id: string) => {
     setAttendance((prev) => ({ ...prev, [id]: !prev[id] }));
   };
 
@@ -47,6 +61,8 @@ export default function AttendancePage() {
       present: attendance[m.id] ?? false,
     }));
 
+    const hcId = eventType === 'house_church' ? selectedHcId || null : null;
+
     try {
       const res = await fetch('/api/attendance', {
         method: 'POST',
@@ -54,7 +70,7 @@ export default function AttendancePage() {
         body: JSON.stringify({
           date,
           attendance_type: eventType,
-          house_church_id: null,
+          house_church_id: hcId,
           records,
         }),
       });
@@ -73,8 +89,8 @@ export default function AttendancePage() {
   };
 
   const resetAttendance = () => {
-    const initial: Record<number, boolean> = {};
-    members.forEach((m) => { initial[m.id] = false; });
+    const initial: Record<string, boolean> = {};
+    allMembers.forEach((m) => { initial[m.id] = false; });
     setAttendance(initial);
   };
 
@@ -124,6 +140,23 @@ export default function AttendancePage() {
               onChange={(e) => handleDateChange(e.target.value)}
             />
           </div>
+
+          {eventType === 'house_church' && (
+            <div className="form-group" style={{ flex: 1, minWidth: '200px' }}>
+              <label htmlFor="att-hc">{t('hc.title')}</label>
+              <select
+                id="att-hc"
+                className="form-input"
+                value={selectedHcId}
+                onChange={(e) => { setSelectedHcId(e.target.value); resetAttendance(); }}
+              >
+                <option value="">{t('hc.allCampuses')}</option>
+                {churches.map(hc => (
+                  <option key={hc.id} value={hc.id}>{hc.name}</option>
+                ))}
+              </select>
+            </div>
+          )}
         </div>
       </div>
 
