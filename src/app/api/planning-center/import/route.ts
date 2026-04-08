@@ -117,25 +117,6 @@ async function fetchAllPeople(token: string): Promise<{ active: SyncedPerson[]; 
 
     const data = await res.json();
 
-    // DEBUG: log first page of raw PCO response to diagnose address issue
-    if (active.length === 0) {
-      console.log('[PCO DEBUG] URL fetched:', nextUrl || '(initial)');
-      console.log('[PCO DEBUG] data.data count:', data.data?.length ?? 0);
-      console.log('[PCO DEBUG] included count:', data.included?.length ?? 0);
-      const incTypes = new Map<string, number>();
-      for (const inc of (data.included || [])) {
-        incTypes.set(inc.type, (incTypes.get(inc.type) || 0) + 1);
-      }
-      console.log('[PCO DEBUG] included types:', Object.fromEntries(incTypes));
-      const firstAddr = (data.included || []).find((i: PcoIncluded) => i.type === 'Address');
-      if (firstAddr) {
-        console.log('[PCO DEBUG] first Address item:', JSON.stringify(firstAddr, null, 2));
-      } else {
-        console.log('[PCO DEBUG] NO Address items in included array');
-        console.log('[PCO DEBUG] first included item:', JSON.stringify(data.included?.[0], null, 2));
-      }
-    }
-
     // Build lookup maps from included resources
     const emailMap = new Map<string, string>();
     const phoneMap = new Map<string, string>();
@@ -153,8 +134,11 @@ async function fetchAllPeople(token: string): Promise<{ active: SyncedPerson[]; 
           phoneMap.set(personId, inc.attributes.number as string);
         }
         if (inc.type === 'Address' && inc.attributes.primary) {
+          const line1 = ((inc.attributes.street_line_1 as string) || '').trim();
+          const line2 = ((inc.attributes.street_line_2 as string) || '').trim();
+          const street = line2 ? `${line1}, ${line2}` : line1;
           addressMap.set(personId, {
-            street: ((inc.attributes.street as string) || '').trim(),
+            street,
             city: ((inc.attributes.city as string) || '').trim(),
             state: ((inc.attributes.state as string) || '').trim(),
             zip: ((inc.attributes.zip as string) || '').trim(),
