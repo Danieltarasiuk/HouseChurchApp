@@ -917,12 +917,7 @@ tr:hover td {
 /* Members page: full-width override — bust through max-width */
 .main-content:has(.members-page) {
   max-width: none;
-}
-.members-page {
-  margin-left: -40px;
-  margin-right: -40px;
-  padding-left: 40px;
-  padding-right: 40px;
+  overflow-x: hidden;
 }
 .members-page .members-map-wrap,
 .members-page .members-table-wrap {

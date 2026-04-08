@@ -223,7 +223,7 @@ export default function MembersPage() {
 
       {/* Map */}
       {canSeeMap && showMap && !loading && (
-        <div style={{ marginBottom: '16px', marginLeft: '-40px', marginRight: '-40px' }} className="members-map-wrap">
+        <div style={{ marginBottom: '16px' }} className="members-map-wrap">
           <MapComponent markers={mapMarkers} height="380px" emptyMessage={emptyMsg} />
         </div>
       )}
