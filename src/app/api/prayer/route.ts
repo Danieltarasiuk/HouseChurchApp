@@ -91,23 +91,35 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Invalid visibility' }, { status: 400 });
     }
 
-    // Auto-resolve house_church_id from user's member record if not provided
+    // Resolve house_church_id:
+    // - If submitting on behalf (member_id provided), resolve from target member's record
+    // - Otherwise resolve from submitter's own member record
     let resolvedHcId = house_church_id || null;
     let resolvedVis = vis;
-    if (vis === 'house_church' && !resolvedHcId) {
+    if (!resolvedHcId) {
       try {
-        const memberRow = await sql(
-          'SELECT house_church_id FROM members WHERE user_id = $1 AND is_active = true LIMIT 1',
-          [session.user.id]
-        );
+        let memberRow;
+        if (member_id) {
+          // On behalf: use target member's HC
+          memberRow = await sql(
+            'SELECT house_church_id FROM members WHERE id = $1 AND is_active = true LIMIT 1',
+            [member_id]
+          );
+        } else {
+          // For myself: use submitter's HC
+          memberRow = await sql(
+            'SELECT house_church_id FROM members WHERE user_id = $1 AND is_active = true LIMIT 1',
+            [session.user.id]
+          );
+        }
         resolvedHcId = memberRow[0]?.house_church_id || null;
       } catch {
         resolvedHcId = null;
       }
-      if (!resolvedHcId) {
-        // Graceful fallback: if user has no HC, save as public instead of rejecting
-        resolvedVis = 'public';
-      }
+    }
+    if (vis === 'house_church' && !resolvedHcId) {
+      // Graceful fallback: if no HC found, save as public instead of rejecting
+      resolvedVis = 'public';
     }
 
     const result = await sql(
@@ -117,7 +129,17 @@ export async function POST(request: Request) {
       [title.trim(), description?.trim() || null, session.user.id, member_id || null, resolvedVis, resolvedHcId]
     );
 
-    return NextResponse.json({ prayer: { ...result[0], requester_name: session.user.name } });
+    // Resolve member_name for the response if on-behalf
+    let memberName = null;
+    if (member_id) {
+      const mRow = await sql(
+        "SELECT first_name || ' ' || last_name AS name FROM members WHERE id = $1",
+        [member_id]
+      );
+      memberName = mRow[0]?.name || null;
+    }
+
+    return NextResponse.json({ prayer: { ...result[0], requester_name: session.user.name, member_name: memberName } });
   } catch (error) {
     console.error('Create prayer error:', error);
     const msg = error instanceof Error ? error.message : 'Failed to create prayer request';
@@ -159,7 +181,7 @@ export async function PATCH(request: Request) {
     let paramIdx = 1;
 
     if (status) {
-      if (!['active', 'praying', 'answered'].includes(status)) {
+      if (!['active', 'answered'].includes(status)) {
         return NextResponse.json({ error: 'Invalid status' }, { status: 400 });
       }
       updates.push(`status = $${paramIdx++}`);

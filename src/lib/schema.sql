@@ -114,7 +114,7 @@ CREATE TABLE IF NOT EXISTS prayer_requests (
   title VARCHAR(255) NOT NULL,
   description TEXT,
   visibility VARCHAR(20) DEFAULT 'public' CHECK (visibility IN ('public', 'house_church', 'private')),
-  status VARCHAR(20) DEFAULT 'active' CHECK (status IN ('active', 'praying', 'answered')),
+  status VARCHAR(20) DEFAULT 'active' CHECK (status IN ('active', 'answered')),
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
   updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
@@ -160,6 +160,7 @@ CREATE INDEX IF NOT EXISTS idx_attendance_date ON attendance(date);
 CREATE INDEX IF NOT EXISTS idx_attendance_house_church ON attendance(house_church_id);
 CREATE INDEX IF NOT EXISTS idx_attendance_member ON attendance(member_id);
 CREATE INDEX IF NOT EXISTS idx_attendance_type ON attendance(attendance_type);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_attendance_member_date_type ON attendance(member_id, date, attendance_type);
 CREATE INDEX IF NOT EXISTS idx_discipleship_user ON discipleship_progress(user_id);
 CREATE INDEX IF NOT EXISTS idx_incubator_user ON incubator_progress(user_id);
 CREATE INDEX IF NOT EXISTS idx_prayer_house_church ON prayer_requests(house_church_id);

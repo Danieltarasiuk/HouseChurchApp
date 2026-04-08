@@ -777,7 +777,6 @@ tr:hover td {
 .pastoral-panel-body { flex: 1; overflow-y: auto; padding: 20px 24px; }
 .pastoral-mobile-cards { display: none; }
 .badge-active { background: #dbeafe; color: #1d4ed8; }
-.badge-praying { background: #ede9fe; color: #7c3aed; }
 .badge-answered { background: #dcfce7; color: #16a34a; }
 
 @media (max-width: 768px) {

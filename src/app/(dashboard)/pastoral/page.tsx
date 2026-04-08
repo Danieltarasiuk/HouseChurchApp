@@ -513,7 +513,7 @@ export default function PastoralPage() {
             ) : (
               <div className="pastoral-panel-body">
                 {/* Attendance Section */}
-                {panelAttendance && (
+                {panelAttendance && panelAttendance.sunday_service && (
                   <div style={{ marginBottom: '24px' }}>
                     <h4 style={{ margin: '0 0 12px 0' }}>{t('pastoral.attendance')}</h4>
                     {(['sunday_service', 'house_church'] as const).map(type => {
@@ -643,7 +643,7 @@ export default function PastoralPage() {
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                         <span style={{ fontWeight: 600, fontSize: '14px' }}>{pr.title}</span>
                         <div style={{ display: 'flex', gap: '4px' }}>
-                          <span className={`badge ${pr.status === 'active' ? 'badge-active' : pr.status === 'praying' ? 'badge-praying' : 'badge-answered'}`}>
+                          <span className={`badge ${pr.status === 'answered' ? 'badge-answered' : 'badge-active'}`}>
                             {pr.status}
                           </span>
                           <span className="badge badge-member" style={{ fontSize: '11px' }}>

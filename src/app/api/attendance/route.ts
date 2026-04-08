@@ -30,18 +30,25 @@ export async function POST(req: NextRequest) {
     // but no record exists for a member, they were absent.
     // Using ON CONFLICT to preserve existing present records — once present, stays present.
     const presentRecords = records.filter((r: { member_id: string; present: boolean }) => r.present);
-    let count = 0;
 
+    console.log('[Attendance POST] date:', date, 'type:', attendance_type, 'hc:', house_church_id, 'total records:', records.length, 'present:', presentRecords.length);
+
+    let count = 0;
     for (const record of presentRecords) {
-      await sql(
-        `INSERT INTO attendance (house_church_id, member_id, date, attendance_type, present)
-         VALUES ($1, $2, $3, $4, true)
-         ON CONFLICT (member_id, date, attendance_type) DO NOTHING`,
-        [house_church_id || null, record.member_id, date, attendance_type]
-      );
-      count++;
+      try {
+        await sql(
+          `INSERT INTO attendance (house_church_id, member_id, date, attendance_type, present)
+           VALUES ($1, $2, $3, $4, true)
+           ON CONFLICT (member_id, date, attendance_type) DO NOTHING`,
+          [house_church_id || null, record.member_id, date, attendance_type]
+        );
+        count++;
+      } catch (insertError) {
+        console.error('[Attendance POST] Insert failed for member:', record.member_id, insertError);
+      }
     }
 
+    console.log('[Attendance POST] Inserted:', count);
     return NextResponse.json({ success: true, count });
   } catch (error) {
     console.error('Attendance save error:', error);
@@ -75,6 +82,8 @@ export async function GET(req: NextRequest) {
     );
     const memberHcId = memberRows[0]?.house_church_id || null;
 
+    console.log('[Attendance GET] memberId:', memberId, 'memberHcId:', memberHcId, 'limit:', limit);
+
     const result: Record<string, { dates: string[]; present: string[] }> = {};
 
     const formatDate = (r: Record<string, unknown>) => {
@@ -91,6 +100,7 @@ export async function GET(req: NextRequest) {
          LIMIT $1`,
         [limit]
       );
+      console.log('[Attendance GET] sunday_service dateRows:', dateRows.length);
       const dates = dateRows.map(formatDate);
 
       if (dates.length === 0) {
@@ -106,6 +116,10 @@ export async function GET(req: NextRequest) {
         result.sunday_service = { dates, present: presentRows.map(formatDate) };
       }
     }
+
+    // Debug: check total records
+    const totalRows = await sql('SELECT COUNT(*)::int AS cnt FROM attendance');
+    console.log('[Attendance GET] total attendance records in DB:', totalRows[0]?.cnt);
 
     // --- House Church: only dates where THIS member's HC had attendance ---
     {

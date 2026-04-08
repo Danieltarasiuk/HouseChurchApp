@@ -51,12 +51,33 @@ export default function AttendancePage() {
       const mems = memData.members || [];
       setAllMembers(mems);
       setChurches(hcData.churches || []);
-      const initial: Record<string, boolean> = {};
-      mems.forEach((m: Member) => { initial[m.id] = false; });
-      setAttendance(initial);
     }).catch(() => {})
       .finally(() => setLoading(false));
   }, []);
+
+  // Pre-load existing attendance when date, event type, or HC changes
+  useEffect(() => {
+    if (!date || !eventType || allMembers.length === 0) return;
+
+    const initial: Record<string, boolean> = {};
+    allMembers.forEach(m => { initial[m.id] = false; });
+
+    const params = new URLSearchParams({ date, attendance_type: eventType });
+    if (eventType === 'house_church' && selectedHcId) {
+      params.set('house_church_id', selectedHcId);
+    }
+
+    fetch(`/api/attendance/existing?${params}`)
+      .then(r => r.json())
+      .then(data => {
+        const updated = { ...initial };
+        (data.present_member_ids || []).forEach((id: string) => {
+          updated[id] = true;
+        });
+        setAttendance(updated);
+      })
+      .catch(() => setAttendance(initial));
+  }, [date, eventType, selectedHcId, allMembers.length]);
 
   // Filter members: by HC when applicable, and by minors toggle
   const members = allMembers.filter(m => {
@@ -95,33 +116,19 @@ export default function AttendancePage() {
         }),
       });
 
+      const resData = await res.json();
       if (res.ok) {
         const msg = t('att.saved')
-          .replace('{present}', String(presentCount))
+          .replace('{present}', String(resData.count ?? presentCount))
           .replace('{total}', String(totalCount));
         alert(msg);
       } else {
-        alert(t('att.saveError'));
+        console.error('[Attendance] Save error:', resData);
+        alert(t('att.saveError') + (resData.error ? ': ' + resData.error : ''));
       }
     } catch {
       alert(t('att.saveError'));
     }
-  };
-
-  const resetAttendance = () => {
-    const initial: Record<string, boolean> = {};
-    allMembers.forEach((m) => { initial[m.id] = false; });
-    setAttendance(initial);
-  };
-
-  const handleEventTypeChange = (value: string) => {
-    setEventType(value);
-    resetAttendance();
-  };
-
-  const handleDateChange = (value: string) => {
-    setDate(value);
-    resetAttendance();
   };
 
   return (
@@ -143,7 +150,7 @@ export default function AttendancePage() {
               id="att-event-type"
               className="form-input"
               value={eventType}
-              onChange={(e) => handleEventTypeChange(e.target.value)}
+              onChange={(e) => setEventType(e.target.value)}
             >
               <option value="sunday_service">{t('att.sundayService')}</option>
               <option value="house_church">{t('att.houseChurch')}</option>
@@ -157,7 +164,7 @@ export default function AttendancePage() {
               type="date"
               className="form-input"
               value={date}
-              onChange={(e) => handleDateChange(e.target.value)}
+              onChange={(e) => setDate(e.target.value)}
             />
           </div>
 
@@ -173,7 +180,7 @@ export default function AttendancePage() {
                 id="att-hc"
                 className="form-input"
                 value={selectedHcId}
-                onChange={(e) => { setSelectedHcId(e.target.value); resetAttendance(); }}
+                onChange={(e) => setSelectedHcId(e.target.value)}
               >
                 <option value="">{t('hc.allCampuses')}</option>
                 {churches.map(hc => (
