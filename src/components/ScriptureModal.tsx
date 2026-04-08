@@ -19,19 +19,39 @@ interface ScriptureModalProps {
  * when a subsequent part starts with a digit (same-book shorthand).
  */
 function expandRefs(raw: string): string[] {
-  const parts = raw.split(';').map(r => r.trim()).filter(Boolean);
+  // First split on semicolons for multi-passage refs
+  const semiParts = raw.split(';').map(r => r.trim()).filter(Boolean);
   let lastBook = '';
-  return parts.map(part => {
+  const expanded: string[] = [];
+
+  for (const part of semiParts) {
+    let resolved: string;
     // Same-book shorthand: starts with chapter:verse like "2:7" or "10:9"
     // but NOT a numbered book name like "1 John" or "2 Corinthians"
     if (/^\d+:/.test(part) || /^\d+\s*-\s*\d+$/.test(part)) {
-      return `${lastBook} ${part}`;
+      resolved = `${lastBook} ${part}`;
+    } else {
+      const match = part.match(/^(.+?)\s*\d+[:\s]/);
+      if (match) lastBook = match[1].trim();
+      resolved = part;
     }
-    // Extract book name (everything before the chapter:verse pattern)
-    const match = part.match(/^(.+?)\s*\d+[:\s]/);
-    if (match) lastBook = match[1].trim();
-    return part;
-  });
+
+    // Handle comma-separated verses within a reference: "Romans 10:9, 13"
+    // Split "Book Ch:V1, V2" into ["Book Ch:V1", "Book Ch:V2"]
+    const commaMatch = resolved.match(/^(.+?\s+\d+):(\d+(?:-\d+)?)\s*,\s*(.+)$/);
+    if (commaMatch) {
+      const [, bookChapter, firstVerse, rest] = commaMatch;
+      expanded.push(`${bookChapter}:${firstVerse}`);
+      // Rest may have more comma-separated verses: "13, 15" or "13"
+      for (const v of rest.split(',').map(s => s.trim()).filter(Boolean)) {
+        expanded.push(`${bookChapter}:${v}`);
+      }
+    } else {
+      expanded.push(resolved);
+    }
+  }
+
+  return expanded;
 }
 
 export default function ScriptureModal({
