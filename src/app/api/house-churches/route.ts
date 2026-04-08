@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/lib/auth';
 import { sql } from '@/lib/db';
+import { geocodeHouseChurchAsync } from '@/lib/geocode';
 
 export async function GET() {
   const session = await auth();
@@ -13,6 +14,7 @@ export async function GET() {
       `SELECT hc.id, hc.name, hc.description, hc.meeting_day, hc.meeting_time,
               hc.location, hc.pco_campus_id, hc.campus_name,
               hc.address_street, hc.address_city, hc.address_state, hc.address_zip,
+              hc.latitude, hc.longitude,
               hc.pastor_id, hc.host_id, hc.trainee_id,
               p_member.first_name || ' ' || p_member.last_name AS pastor_name,
               h_member.first_name || ' ' || h_member.last_name AS host_name,
@@ -82,6 +84,11 @@ export async function POST(req: NextRequest) {
 
     const newHcId = result[0].id;
 
+    // Fire-and-forget geocode the address
+    if (address_street || address_city) {
+      geocodeHouseChurchAsync(newHcId, address_street || '', address_city || '', address_state || '', address_zip || '');
+    }
+
     // Auto-assign members from selected campus to this house church
     if (pco_campus_id) {
       await sql(
@@ -127,7 +134,8 @@ export async function PATCH(req: NextRequest) {
       `UPDATE house_churches SET
         name = $1, description = $2, meeting_day = $3, meeting_time = $4, location = $5,
         address_street = $6, address_city = $7, address_state = $8, address_zip = $9,
-        pastor_id = $10, host_id = $11, trainee_id = $12, campus_name = $13, pco_campus_id = $14
+        pastor_id = $10, host_id = $11, trainee_id = $12, campus_name = $13, pco_campus_id = $14,
+        latitude = NULL, longitude = NULL
        WHERE id = $15`,
       [
         name?.trim() || null, description || null, meeting_day || null, meeting_time || null, location || null,
@@ -136,6 +144,11 @@ export async function PATCH(req: NextRequest) {
         id,
       ]
     );
+
+    // Fire-and-forget geocode the updated address
+    if (address_street || address_city) {
+      geocodeHouseChurchAsync(id, address_street || '', address_city || '', address_state || '', address_zip || '');
+    }
 
     return NextResponse.json({ success: true });
   } catch (error) {

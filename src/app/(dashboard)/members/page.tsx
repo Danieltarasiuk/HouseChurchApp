@@ -1,12 +1,14 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import dynamic from 'next/dynamic';
 import { useSession } from 'next-auth/react';
 import { useLang } from '@/context/LangContext';
-import { Map as MapIcon, List } from 'lucide-react';
+import { Map as MapIcon } from 'lucide-react';
+import { getHCColor } from '@/lib/map-utils';
+import type { MapMarker } from '@/lib/map-utils';
 
-const MemberMap = dynamic(() => import('@/components/MemberMap'), { ssr: false });
+const MapComponent = dynamic(() => import('@/components/MapComponent'), { ssr: false });
 
 interface Member {
   id: string;
@@ -15,6 +17,7 @@ interface Member {
   email: string;
   phone: string | null;
   role: string;
+  house_church_id: string | null;
   house_church_name: string | null;
   gender: string | null;
   date_of_birth: string | null;
@@ -33,16 +36,12 @@ const roleLabel = (role: string, t: (k: string) => string) => {
 
 const roleBadgeClass = (role: string) => {
   switch (role) {
-    case 'admin':
-      return 'badge badge-pastor';
-    case 'house_church_pastor':
-      return 'badge badge-leader';
-    default:
-      return 'badge badge-member';
+    case 'admin': return 'badge badge-pastor';
+    case 'house_church_pastor': return 'badge badge-leader';
+    default: return 'badge badge-member';
   }
 };
 
-/** Parse YYYY-MM-DD safely without timezone shift */
 function parseDate(d: string): Date | null {
   const parts = d.split('-');
   if (parts.length !== 3) return null;
@@ -51,29 +50,25 @@ function parseDate(d: string): Date | null {
   return new Date(y, m - 1, day);
 }
 
-/** Calculate age from YYYY-MM-DD date_of_birth */
 function calcAge(dob: string): number | null {
   const birth = parseDate(dob);
   if (!birth) return null;
   const today = new Date();
   let age = today.getFullYear() - birth.getFullYear();
   const monthDiff = today.getMonth() - birth.getMonth();
-  if (monthDiff < 0 || (monthDiff === 0 && today.getDate() < birth.getDate())) {
-    age--;
-  }
+  if (monthDiff < 0 || (monthDiff === 0 && today.getDate() < birth.getDate())) age--;
   return age;
 }
 
-/** Format birthday as "Mon DD" (month + day only) */
 function formatBirthday(dob: string, lang: string): string {
   const d = parseDate(dob);
   if (!d) return '—';
   return d.toLocaleDateString(lang === 'es' ? 'es-US' : 'en-US', { month: 'short', day: 'numeric' });
 }
 
-/** Build formatted address string */
-function formatAddress(m: Member): string | null {
-  const parts = [m.address_street, m.address_city, m.address_state, m.address_zip].filter(Boolean);
+function formatAddress(m: { address_street: string | null; address_city: string | null; address_state: string | null; address_zip: string | null }): string | null {
+  const stateZip = m.address_state && m.address_zip ? `${m.address_state} ${m.address_zip}` : m.address_state || m.address_zip;
+  const parts = [m.address_street, m.address_city, stateZip].filter(Boolean);
   return parts.length > 0 ? parts.join(', ') : null;
 }
 
@@ -86,7 +81,7 @@ export default function MembersPage() {
   const [search, setSearch] = useState('');
   const [members, setMembers] = useState<Member[]>([]);
   const [loading, setLoading] = useState(true);
-  const [view, setView] = useState<'list' | 'map'>('list');
+  const [showMap, setShowMap] = useState(true);
   const [redFlags, setRedFlags] = useState<Record<string, number>>({});
 
   useEffect(() => {
@@ -111,10 +106,35 @@ export default function MembersPage() {
   const filtered = members.filter((m) => {
     const q = search.toLowerCase();
     const fullName = `${m.first_name} ${m.last_name}`.toLowerCase();
-    return fullName.includes(q) || m.email.toLowerCase().includes(q);
+    return fullName.includes(q) || m.email?.toLowerCase().includes(q);
   });
 
-  const mappableMembers = filtered.filter((m) => m.latitude && m.longitude);
+  // Build unique HC IDs for deterministic coloring
+  const allHCIds = useMemo(() => {
+    const ids = new Set<string>();
+    members.forEach(m => { if (m.house_church_id) ids.add(m.house_church_id); });
+    return Array.from(ids).sort();
+  }, [members]);
+
+  const mapMarkers: MapMarker[] = useMemo(() => {
+    return filtered
+      .filter(m => m.latitude && m.longitude)
+      .map(m => {
+        const addr = formatAddress(m);
+        return {
+          id: m.id,
+          lat: m.latitude!,
+          lng: m.longitude!,
+          type: 'member' as const,
+          color: m.house_church_id ? getHCColor(m.house_church_id, allHCIds) : '#9CA3AF',
+          tooltipHtml: `<strong>${m.first_name} ${m.last_name}</strong><br/>${addr || '—'}`,
+        };
+      });
+  }, [filtered, allHCIds]);
+
+  const emptyMsg = language === 'es'
+    ? 'No hay datos de ubicación. Sincroniza desde Planning Center para importar direcciones.'
+    : 'No location data available. Sync from Planning Center to import addresses.';
 
   return (
     <div>
@@ -123,24 +143,10 @@ export default function MembersPage() {
         <p>{t('mem.sub')}</p>
       </div>
 
-      {/* Map view */}
-      {canSeeMap && view === 'map' && !loading && (
-        <div style={{ marginBottom: '16px' }}>
-          <MemberMap
-            members={mappableMembers.map((m) => ({
-              id: m.id,
-              first_name: m.first_name,
-              last_name: m.last_name,
-              latitude: m.latitude!,
-              longitude: m.longitude!,
-              house_church_name: m.house_church_name,
-            }))}
-          />
-          {mappableMembers.length === 0 && (
-            <p style={{ textAlign: 'center', color: 'var(--text-tertiary)', marginTop: '8px', fontSize: '13px' }}>
-              {t('mem.noAddresses')}
-            </p>
-          )}
+      {/* Map */}
+      {canSeeMap && showMap && !loading && (
+        <div style={{ marginBottom: '16px', marginLeft: '-40px', marginRight: '-40px' }} className="members-map-wrap">
+          <MapComponent markers={mapMarkers} height="380px" emptyMessage={emptyMsg} />
         </div>
       )}
 
@@ -158,11 +164,11 @@ export default function MembersPage() {
             />
             {canSeeMap && (
               <button
-                className={`btn ${view === 'map' ? 'btn-primary' : ''}`}
-                onClick={() => setView(view === 'list' ? 'map' : 'list')}
-                title={view === 'list' ? t('mem.showMap') : t('mem.hideMap')}
+                className={`btn ${showMap ? 'btn-primary' : 'btn-ghost'}`}
+                onClick={() => setShowMap(!showMap)}
+                title={showMap ? t('mem.hideMap') : t('mem.showMap')}
               >
-                {view === 'list' ? <MapIcon size={16} /> : <List size={16} />}
+                <MapIcon size={16} />
               </button>
             )}
           </div>

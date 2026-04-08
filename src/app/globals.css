@@ -864,7 +864,51 @@ tr:hover td {
   max-width: 200px;
 }
 
+/* HC split layout (list + map) */
+.hc-split-layout {
+  display: flex;
+  gap: 20px;
+  min-height: calc(100vh - 120px);
+}
+.hc-split-list {
+  width: 40%;
+  overflow-y: auto;
+  max-height: calc(100vh - 120px);
+  padding-right: 4px;
+}
+.hc-split-map {
+  width: 60%;
+  position: sticky;
+  top: 0;
+  height: calc(100vh - 120px);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+}
+
 @media (max-width: 768px) {
   .hc-grid { grid-template-columns: 1fr; }
   th.col-hide-mobile, td.col-hide-mobile { display: none; }
+
+  /* HC split: stack vertically on mobile */
+  .hc-split-layout {
+    flex-direction: column-reverse;
+    min-height: auto;
+  }
+  .hc-split-list {
+    width: 100%;
+    max-height: none;
+    overflow-y: visible;
+    padding-right: 0;
+  }
+  .hc-split-map {
+    width: 100%;
+    position: relative;
+    height: 300px;
+  }
+
+  /* Members map: remove negative margins on mobile */
+  .members-map-wrap {
+    margin-left: 0 !important;
+    margin-right: 0 !important;
+  }
 }

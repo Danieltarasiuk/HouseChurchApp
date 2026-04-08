@@ -29,6 +29,9 @@ CREATE TABLE IF NOT EXISTS house_churches (
   meeting_day VARCHAR(20),
   meeting_time VARCHAR(20),
   pco_campus_id VARCHAR(100),
+  campus_name VARCHAR(255),
+  latitude DOUBLE PRECISION,
+  longitude DOUBLE PRECISION,
   is_active BOOLEAN DEFAULT true,
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );

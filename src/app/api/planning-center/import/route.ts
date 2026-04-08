@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { auth } from '@/lib/auth';
 import { sql } from '@/lib/db';
+import { geocodeMembersWithoutCoords } from '@/lib/geocode';
 
 interface PcoPerson {
   id: string;
@@ -289,10 +290,21 @@ export async function POST() {
       archived = archivedResult.length;
     }
 
+    // 5. Batch geocode members who have address but no lat/lng
+    //    This runs synchronously with rate limiting (1 req/sec) so may take a while
+    //    but we do it during sync since that's admin-triggered
+    let geocoded = 0;
+    try {
+      geocoded = await geocodeMembersWithoutCoords();
+    } catch (e) {
+      console.error('Geocoding batch error (non-fatal):', e);
+    }
+
     return NextResponse.json({
       imported,
       skipped,
       archived,
+      geocoded,
       total: people.length,
       campuses: pcoCampuses.size,
     });

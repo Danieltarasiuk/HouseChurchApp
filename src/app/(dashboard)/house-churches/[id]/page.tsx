@@ -1,11 +1,16 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
+import dynamic from 'next/dynamic';
 import { useParams, useRouter } from 'next/navigation';
 import { useSession } from 'next-auth/react';
 import { useLang } from '@/context/LangContext';
 import { ArrowLeft, Pencil } from 'lucide-react';
 import HouseChurchModal from '@/components/HouseChurchModal';
+import { getHCColor } from '@/lib/map-utils';
+import type { MapMarker } from '@/lib/map-utils';
+
+const MapComponent = dynamic(() => import('@/components/MapComponent'), { ssr: false });
 
 interface HouseChurch {
   id: string;
@@ -20,6 +25,8 @@ interface HouseChurch {
   address_city: string | null;
   address_state: string | null;
   address_zip: string | null;
+  latitude: number | null;
+  longitude: number | null;
   pastor_id: string | null;
   host_id: string | null;
   trainee_id: string | null;
@@ -42,6 +49,8 @@ interface Member {
   address_city: string | null;
   address_state: string | null;
   address_zip: string | null;
+  latitude: number | null;
+  longitude: number | null;
   house_church_id: string | null;
 }
 
@@ -91,8 +100,9 @@ function formatBirthday(dob: string, lang: string): string {
   return d.toLocaleDateString(lang === 'es' ? 'es-US' : 'en-US', { month: 'short', day: 'numeric' });
 }
 
-function formatMemberAddress(m: Member): string | null {
-  const parts = [m.address_street, m.address_city, m.address_state, m.address_zip].filter(Boolean);
+function formatMemberAddress(m: { address_street: string | null; address_city: string | null; address_state: string | null; address_zip: string | null }): string | null {
+  const stateZip = m.address_state && m.address_zip ? `${m.address_state} ${m.address_zip}` : m.address_state || m.address_zip;
+  const parts = [m.address_street, m.address_city, stateZip].filter(Boolean);
   return parts.length > 0 ? parts.join(', ') : null;
 }
 
@@ -132,9 +142,44 @@ export default function HouseChurchDetailPage() {
   useEffect(() => { loadData(); }, [loadData]);
 
   const formatAddress = (hc: HouseChurch) => {
-    const parts = [hc.address_street, hc.address_city, hc.address_state, hc.address_zip].filter(Boolean);
+    const stateZip = hc.address_state && hc.address_zip ? `${hc.address_state} ${hc.address_zip}` : hc.address_state || hc.address_zip;
+    const parts = [hc.address_street, hc.address_city, stateZip].filter(Boolean);
     return parts.join(', ') || hc.location || null;
   };
+
+  const mapMarkers: MapMarker[] = useMemo(() => {
+    if (!church) return [];
+    const markers: MapMarker[] = [];
+    const allHCIds = [church.id];
+    const color = getHCColor(church.id, allHCIds);
+
+    if (church.latitude && church.longitude) {
+      markers.push({
+        id: `hc-${church.id}`,
+        lat: church.latitude,
+        lng: church.longitude,
+        type: 'house_church',
+        color,
+        tooltipHtml: `<strong>${church.name}</strong>`,
+      });
+    }
+
+    for (const m of hcMembers) {
+      if (m.latitude && m.longitude) {
+        const addr = formatMemberAddress(m);
+        markers.push({
+          id: `mem-${m.id}`,
+          lat: m.latitude,
+          lng: m.longitude,
+          type: 'member',
+          color,
+          tooltipHtml: `<strong>${m.first_name} ${m.last_name}</strong><br/>${addr || '—'}`,
+        });
+      }
+    }
+
+    return markers;
+  }, [church, hcMembers]);
 
   if (loading) {
     return (
@@ -207,6 +252,15 @@ export default function HouseChurchDetailPage() {
             <div style={{ gridColumn: '1 / -1' }}><strong>{t('hc.address')}:</strong> {addr}</div>
           )}
         </div>
+      </div>
+
+      {/* Map */}
+      <div style={{ marginTop: '20px', borderRadius: 'var(--radius-md)', overflow: 'hidden' }}>
+        <MapComponent
+          markers={mapMarkers}
+          height="320px"
+          emptyMessage={language === 'es' ? 'No hay datos de ubicación.' : 'No location data available.'}
+        />
       </div>
 
       {/* Members Table */}
