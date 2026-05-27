@@ -36,7 +36,7 @@ export default function SettingsPage() {
 
 function SettingsContent() {
   const { t } = useLang();
-  const { data: session } = useSession();
+  const { data: session, status } = useSession();
   const searchParams = useSearchParams();
   const currentUserRole = (session?.user as { role?: string })?.role;
   const currentUserId = session?.user?.id;
@@ -75,12 +75,13 @@ function SettingsContent() {
   }, [t]);
 
   useEffect(() => {
+    if (status === 'loading') return;
     if (isAdmin) {
       fetchUsers();
     } else {
       setLoading(false);
     }
-  }, [isAdmin, fetchUsers]);
+  }, [status, isAdmin, fetchUsers]);
 
   // Check for PCO callback params
   useEffect(() => {
@@ -96,6 +97,7 @@ function SettingsContent() {
 
   // Check if PCO is already connected
   useEffect(() => {
+    if (status === 'loading') return;
     if (isAdmin) {
       fetch('/api/planning-center/status')
         .then((res) => res.json())
@@ -104,7 +106,7 @@ function SettingsContent() {
         })
         .catch(() => {});
     }
-  }, [isAdmin]);
+  }, [status, isAdmin]);
 
   const updateRole = async (userId: string, newRole: string) => {
     setUpdating(userId);

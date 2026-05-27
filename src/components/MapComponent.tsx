@@ -87,10 +87,13 @@ export default function MapComponent({ markers, height, className, emptyMessage 
       bounds.extend([m.lat, m.lng]);
     }
 
-    map.fitBounds(bounds, { padding: [40, 40] });
-    // Cap max zoom for single pin
+    map.fitBounds(bounds, { padding: [40, 40], maxZoom: 16 });
+    // Re-fit once the container has its final laid-out size. Without this,
+    // fitBounds can run before layout settles and pick too low a zoom,
+    // over-zooming out on tight marker clusters.
     map.whenReady(() => {
-      if (map.getZoom() > 16) map.setZoom(16);
+      map.invalidateSize();
+      map.fitBounds(bounds, { padding: [40, 40], maxZoom: 16 });
     });
 
     return () => {

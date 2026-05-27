@@ -89,7 +89,7 @@ export default function AttendancePage() {
     return true;
   });
 
-  const presentCount = Object.values(attendance).filter(Boolean).length;
+  const presentCount = members.filter(m => attendance[m.id]).length;
   const totalCount = members.length;
 
   const toggleMember = (id: string) => {
