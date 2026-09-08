@@ -1,18 +1,39 @@
 'use client';
 
-import { useState } from 'react';
+import { Suspense, useState } from 'react';
 import { signIn } from 'next-auth/react';
 import Link from 'next/link';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { useLang } from '@/context/LangContext';
 
+/** Map a NextAuth ?error= code to a translation key. */
+function authErrorKey(code: string | null): string | null {
+  if (!code) return null;
+  if (code === 'AccessDenied') return 'auth.errAccessDenied';
+  if (code === 'OAuthAccountNotLinked') return 'auth.errAccountExists';
+  return 'auth.errGeneric';
+}
+
 export default function LoginPage() {
+  return (
+    <Suspense>
+      <LoginContent />
+    </Suspense>
+  );
+}
+
+function LoginContent() {
   const router = useRouter();
   const { t } = useLang();
+  const searchParams = useSearchParams();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+
+  // Errors from a redirect-based flow (Google) arrive as ?error=<code>
+  const redirectErrorKey = authErrorKey(searchParams.get('error'));
+  const displayedError = error || (redirectErrorKey ? t(redirectErrorKey) : '');
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -71,7 +92,7 @@ export default function LoginPage() {
           {t('auth.signInToAccount')}
         </p>
 
-        {error && (
+        {displayedError && (
           <div
             role="alert"
             style={{
@@ -84,7 +105,7 @@ export default function LoginPage() {
               fontSize: '14px',
             }}
           >
-            {error}
+            {displayedError}
           </div>
         )}
 

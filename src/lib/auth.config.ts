@@ -3,6 +3,9 @@ import type { NextAuthConfig } from 'next-auth';
 export const authConfig: NextAuthConfig = {
   pages: {
     signIn: '/login',
+    // Send auth failures back to our own login page as ?error=<code>
+    // instead of NextAuth's bare built-in "Access Denied" page.
+    error: '/login',
   },
   callbacks: {
     async authorized({ auth, request }) {

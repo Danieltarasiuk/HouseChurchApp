@@ -5,6 +5,54 @@ import bcryptjs from 'bcryptjs';
 import { sql } from '@/lib/db';
 import { authConfig } from '@/lib/auth.config';
 
+/** Split a display name into first/last, falling back to the email local part. */
+function splitName(name: string | null | undefined, email: string): { first: string; last: string } {
+  const clean = (name || '').trim().replace(/\s+/g, ' ');
+  if (!clean) return { first: email.split('@')[0], last: '' };
+  const parts = clean.split(' ');
+  if (parts.length === 1) return { first: parts[0], last: '' };
+  return { first: parts[0], last: parts.slice(1).join(' ') };
+}
+
+/**
+ * Give a newly created user a members row so they show up in Members,
+ * Attendance and Pastoral Care. Prefers linking an existing (typically
+ * PCO-imported) member with the same email over creating a duplicate.
+ *
+ * Never throws: a failure here must not block sign-in, since the users
+ * row is already committed and auth does not depend on members.
+ */
+async function linkOrCreateMember(userId: string, email: string, name: string | null | undefined): Promise<void> {
+  try {
+    const linked = await sql(
+      `UPDATE members SET user_id = $1
+       WHERE id = (
+         SELECT id FROM members
+         WHERE LOWER(email) = $2 AND user_id IS NULL
+         ORDER BY joined_at NULLS LAST
+         LIMIT 1
+       )
+       RETURNING id`,
+      [userId, email]
+    );
+    if (linked.length > 0) return;
+
+    // An email match that is already linked to someone else: leave it alone
+    // rather than creating a confusing duplicate.
+    const taken = await sql('SELECT id FROM members WHERE LOWER(email) = $1 LIMIT 1', [email]);
+    if (taken.length > 0) return;
+
+    const { first, last } = splitName(name, email);
+    await sql(
+      `INSERT INTO members (user_id, first_name, last_name, email, house_church_id, is_active)
+       VALUES ($1, $2, $3, $4, NULL, true)`,
+      [userId, first, last, email]
+    );
+  } catch (error) {
+    console.error('Member link/create failed for user', userId, error);
+  }
+}
+
 export const { handlers, auth, signIn, signOut } = NextAuth({
   ...authConfig,
   providers: [
@@ -65,20 +113,28 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
       if (account?.provider === 'google') {
         if (!user.email) return false;
 
+        // Match the normalization the registration and credentials paths use,
+        // so a mixed-case Google address finds its existing row instead of
+        // colliding with the UNIQUE constraint on insert.
+        const email = user.email.toLowerCase().trim();
+
         try {
           const existing = await sql(
             'SELECT id, role, password_hash FROM users WHERE email = $1',
-            [user.email]
+            [email]
           );
 
           if (existing.length === 0) {
-            // Auto-create user on first Google sign-in (NULL password_hash)
+            // Auto-create user on first Google sign-in (NULL password_hash).
+            // name is NOT NULL, so fall back to the email local part.
             const result = await sql(
               "INSERT INTO users (email, name, password_hash, role) VALUES ($1, $2, NULL, 'member') RETURNING id, role",
-              [user.email, user.name]
+              [email, user.name?.trim() || email.split('@')[0]]
             );
             user.id = result[0].id;
             (user as { role?: string }).role = result[0].role;
+
+            await linkOrCreateMember(result[0].id, email, user.name);
           } else {
             // Allow Google sign-in for existing accounts (links Google to existing account)
             user.id = existing[0].id;
