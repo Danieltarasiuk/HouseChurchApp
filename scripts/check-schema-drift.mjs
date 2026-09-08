@@ -181,14 +181,34 @@ async function connect(url, label) {
   }
 }
 
-console.log(
-  separate
-    ? 'Reading the live schema from SCHEMA_SOURCE_URL; building schema.sql in SCHEMA_SANDBOX_URL.'
-    : 'Reading the live schema and building schema.sql in the same database (sandboxed + rolled back).'
-);
+/**
+ * Identify an endpoint (never printing credentials), so a misconfigured
+ * connection is obvious in the log rather than showing up as mystery drift.
+ * Pointing SCHEMA_SOURCE_URL at a copy of production rather than production
+ * itself produces differences that look real but are not.
+ */
+async function describeEndpoint(client, url) {
+  const { rows } = await client.query(
+    'SELECT current_database() AS db, current_user AS usr, version() AS v'
+  );
+  let host = '(unparseable host)';
+  try {
+    host = new URL(url).hostname;
+  } catch { /* keep placeholder */ }
+  const pg = rows[0].v.match(/PostgreSQL ([\d.]+)/)?.[1] ?? '?';
+  return `${host}/${rows[0].db} as ${rows[0].usr} (PostgreSQL ${pg})`;
+}
 
 const sourceClient = await connect(source, 'schema source');
 const sandboxClient = separate ? await connect(sandbox, 'sandbox') : sourceClient;
+
+console.log(`  schema source: ${await describeEndpoint(sourceClient, source)}`);
+console.log(
+  separate
+    ? `  sandbox:       ${await describeEndpoint(sandboxClient, sandbox)}`
+    : '  sandbox:       same connection (temporary schema, rolled back)'
+);
+console.log('');
 
 let live;
 let fresh;
