@@ -29,8 +29,10 @@ CREATE TABLE IF NOT EXISTS users (
 );
 
 -- House Churches
--- pastor_id / host_id / trainee_id hold members.id values but carry no
--- foreign key in the live database (see the optional section at the bottom).
+-- pastor_id / host_id / trainee_id reference members(id). The constraints are
+-- added by ALTER TABLE further down rather than inline, because members is
+-- defined after this table and itself references house_churches — declaring
+-- them here would fail with 'relation "members" does not exist'.
 CREATE TABLE IF NOT EXISTS house_churches (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   name VARCHAR(255) NOT NULL,
@@ -77,6 +79,21 @@ CREATE TABLE IF NOT EXISTS members (
   joined_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
   is_active BOOLEAN DEFAULT true
 );
+
+-- House church leadership references, added now that members exists.
+-- DO $$ guards keep this file re-runnable: ADD CONSTRAINT has no IF NOT EXISTS.
+DO $$ BEGIN
+  ALTER TABLE house_churches ADD CONSTRAINT house_churches_pastor_id_fkey
+    FOREIGN KEY (pastor_id) REFERENCES members(id);
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+DO $$ BEGIN
+  ALTER TABLE house_churches ADD CONSTRAINT house_churches_host_id_fkey
+    FOREIGN KEY (host_id) REFERENCES members(id);
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+DO $$ BEGIN
+  ALTER TABLE house_churches ADD CONSTRAINT house_churches_trainee_id_fkey
+    FOREIGN KEY (trainee_id) REFERENCES members(id);
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
 -- Attendance tracking (only rows for members who were present are kept)
 CREATE TABLE IF NOT EXISTS attendance (
@@ -164,7 +181,7 @@ CREATE TABLE IF NOT EXISTS prayer_requests (
 CREATE TABLE IF NOT EXISTS pastoral_meetings (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   pastor_id UUID NOT NULL REFERENCES users(id),
-  member_id UUID NOT NULL,
+  member_id UUID NOT NULL REFERENCES members(id),
   topic_key VARCHAR(50) NOT NULL,
   meeting_date DATE NOT NULL,
   notes TEXT,
@@ -174,7 +191,7 @@ CREATE TABLE IF NOT EXISTS pastoral_meetings (
 -- Member Flags (yellow = monitor, red = urgent)
 CREATE TABLE IF NOT EXISTS member_flags (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  member_id UUID NOT NULL,
+  member_id UUID NOT NULL REFERENCES members(id),
   created_by UUID NOT NULL REFERENCES users(id),
   flag_color VARCHAR(10) NOT NULL CHECK (flag_color IN ('yellow', 'red')),
   description TEXT NOT NULL,
@@ -215,6 +232,7 @@ CREATE TABLE IF NOT EXISTS sync_log (
 
 -- Indexes present in the live database
 CREATE INDEX IF NOT EXISTS idx_members_house_church ON members(house_church_id);
+CREATE INDEX IF NOT EXISTS idx_members_user_id ON members(user_id);
 CREATE INDEX IF NOT EXISTS idx_attendance_date ON attendance(date);
 CREATE INDEX IF NOT EXISTS idx_attendance_house_church ON attendance(house_church_id);
 CREATE INDEX IF NOT EXISTS idx_attendance_member ON attendance(member_id);
@@ -232,40 +250,23 @@ CREATE INDEX IF NOT EXISTS idx_discipleship_user ON discipleship_progress(user_i
 CREATE INDEX IF NOT EXISTS idx_incubator_user ON incubator_progress(user_id);
 CREATE INDEX IF NOT EXISTS idx_prayer_house_church ON prayer_requests(house_church_id);
 CREATE INDEX IF NOT EXISTS idx_prayer_status ON prayer_requests(status);
+CREATE INDEX IF NOT EXISTS idx_prayer_user ON prayer_requests(user_id);
 CREATE INDEX IF NOT EXISTS idx_pastoral_meetings_member ON pastoral_meetings(member_id);
 CREATE INDEX IF NOT EXISTS idx_pastoral_meetings_pastor ON pastoral_meetings(pastor_id);
+CREATE INDEX IF NOT EXISTS idx_pastoral_meetings_date ON pastoral_meetings(meeting_date);
 CREATE INDEX IF NOT EXISTS idx_member_flags_member ON member_flags(member_id);
+CREATE INDEX IF NOT EXISTS idx_member_flags_created_by ON member_flags(created_by);
+CREATE INDEX IF NOT EXISTS idx_member_flags_unresolved ON member_flags(member_id) WHERE is_resolved = false;
 CREATE INDEX IF NOT EXISTS idx_pastoral_notes_pastor_member ON pastoral_notes(pastor_id, member_id);
 CREATE INDEX IF NOT EXISTS idx_sync_log_created_at ON sync_log(created_at DESC);
 
 -- ---------------------------------------------------------------------------
--- NOT APPLIED TO THE LIVE DATABASE
+-- Notes on what is deliberately NOT here
 --
--- The following would be reasonable to have, and earlier versions of this file
--- declared some of them, but none exist in production. They are left commented
--- out so this file stays an accurate description of reality. Applying them to
--- production is a decision for a maintainer — the foreign keys in particular
--- will fail if any orphaned rows already exist, so check before running.
+-- members.pco_id has no separate index: the UNIQUE constraint
+-- members_pco_id_key already creates a btree on that column, so an additional
+-- index would be a redundant duplicate.
 --
--- Referential integrity for columns that hold members.id but are unconstrained:
---   ALTER TABLE house_churches ADD CONSTRAINT house_churches_pastor_id_fkey
---     FOREIGN KEY (pastor_id) REFERENCES members(id);
---   ALTER TABLE house_churches ADD CONSTRAINT house_churches_host_id_fkey
---     FOREIGN KEY (host_id) REFERENCES members(id);
---   ALTER TABLE house_churches ADD CONSTRAINT house_churches_trainee_id_fkey
---     FOREIGN KEY (trainee_id) REFERENCES members(id);
---   ALTER TABLE pastoral_meetings ADD CONSTRAINT pastoral_meetings_member_id_fkey
---     FOREIGN KEY (member_id) REFERENCES members(id);
---   ALTER TABLE member_flags ADD CONSTRAINT member_flags_member_id_fkey
---     FOREIGN KEY (member_id) REFERENCES members(id);
---
--- Indexes supporting queries the app actually runs:
---   CREATE INDEX idx_members_user_id ON members(user_id);
---   CREATE INDEX idx_prayer_user ON prayer_requests(user_id);
---   CREATE INDEX idx_pastoral_meetings_date ON pastoral_meetings(meeting_date);
---   CREATE INDEX idx_member_flags_created_by ON member_flags(created_by);
---   CREATE INDEX idx_member_flags_unresolved ON member_flags(member_id) WHERE is_resolved = false;
---
--- Also present in the live database but deliberately omitted here:
---   playing_with_neon — a Neon starter-template demo table, unrelated to the app.
+-- playing_with_neon exists in the live database but is omitted: it is a Neon
+-- starter-template demo table, unrelated to the application.
 -- ---------------------------------------------------------------------------
