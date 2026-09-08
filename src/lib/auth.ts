@@ -5,6 +5,16 @@ import bcryptjs from 'bcryptjs';
 import { sql } from '@/lib/db';
 import { authConfig } from '@/lib/auth.config';
 
+/**
+ * How long a role cached in the JWT is trusted before it is re-read from the
+ * users table. The jwt callback runs on every auth() call — several per page
+ * load — so reading per request would add a database round trip to nearly
+ * every response for a value that changes rarely. Five minutes bounds how long
+ * a promotion or demotion can lag; previously a stale role persisted until the
+ * user signed out, so this only narrows the window.
+ */
+const ROLE_TTL_MS = 5 * 60 * 1000;
+
 /** Split a display name into first/last, falling back to the email local part. */
 function splitName(name: string | null | undefined, email: string): { first: string; last: string } {
   const clean = (name || '').trim().replace(/\s+/g, ' ');
@@ -147,11 +157,42 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
       }
       return true;
     },
-    async jwt({ token, user }) {
+    async jwt({ token, user, trigger }) {
+      // Sign-in: seed the token from the freshly authenticated user.
       if (user) {
         token.role = (user as { role?: string }).role;
         token.id = user.id;
+        token.roleCheckedAt = Date.now();
+        return token;
       }
+
+      // Nothing to re-check against (shouldn't happen for a valid session).
+      if (!token.id) return token;
+
+      const checkedAt = typeof token.roleCheckedAt === 'number' ? token.roleCheckedAt : 0;
+      const isStale = Date.now() - checkedAt > ROLE_TTL_MS;
+
+      // `update` lets a client force a refresh via useSession().update().
+      if (!isStale && trigger !== 'update') return token;
+
+      try {
+        const rows = await sql('SELECT role FROM users WHERE id = $1', [token.id]);
+
+        if (rows.length === 0) {
+          // The account no longer exists — end the session rather than keep
+          // honouring a cached role for a deleted user.
+          return null;
+        }
+
+        token.role = rows[0].role;
+        token.roleCheckedAt = Date.now();
+      } catch (error) {
+        // A transient database problem must not sign everyone out. Keep the
+        // cached role and leave roleCheckedAt untouched so the next request
+        // retries immediately.
+        console.error('Role refresh failed for user', token.id, error);
+      }
+
       return token;
     },
     async session({ session, token }) {
