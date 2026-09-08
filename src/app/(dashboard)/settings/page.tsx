@@ -13,6 +13,14 @@ interface User {
   role: string;
 }
 
+interface LastSync {
+  source: string;
+  success: boolean;
+  detail: string | null;
+  syncedCount: number | null;
+  createdAt: string;
+}
+
 const ROLES = ['member', 'house_church_pastor', 'admin'] as const;
 
 const roleBadgeClass = (role: string) => {
@@ -35,7 +43,7 @@ export default function SettingsPage() {
 }
 
 function SettingsContent() {
-  const { t } = useLang();
+  const { t, language } = useLang();
   const { data: session, status } = useSession();
   const searchParams = useSearchParams();
   const currentUserRole = (session?.user as { role?: string })?.role;
@@ -54,6 +62,7 @@ function SettingsContent() {
   const [pcoImporting, setPcoImporting] = useState(false);
   const [pcoResult, setPcoResult] = useState('');
   const [pcoFailReason, setPcoFailReason] = useState('');
+  const [lastSync, setLastSync] = useState<LastSync | null>(null);
 
   const fetchUsers = useCallback(async () => {
     try {
@@ -96,6 +105,17 @@ function SettingsContent() {
     }
   }, [searchParams, t]);
 
+  const fetchLastSync = useCallback(async () => {
+    try {
+      const res = await fetch('/api/planning-center/last-sync');
+      if (!res.ok) return;
+      const data = await res.json();
+      setLastSync(data.lastSync);
+    } catch {
+      // Non-critical — the card just omits the last-sync line
+    }
+  }, []);
+
   // Check if PCO is already connected
   useEffect(() => {
     if (status === 'loading') return;
@@ -114,8 +134,16 @@ function SettingsContent() {
         .catch(() => {
           setPcoFailReason('pco_unavailable');
         });
+      fetchLastSync();
     }
-  }, [status, isAdmin]);
+  }, [status, isAdmin, fetchLastSync]);
+
+  const lastSyncText = lastSync
+    ? t('settings.pcoLastSync')
+        .replace('{date}', new Date(lastSync.createdAt).toLocaleString(language))
+        .replace('{source}', t('settings.pcoSource.' + lastSync.source))
+        .replace('{status}', lastSync.success ? t('settings.pcoSyncOk') : t('settings.pcoSyncFailed'))
+    : '';
 
   const updateRole = async (userId: string, newRole: string) => {
     setUpdating(userId);
@@ -175,6 +203,8 @@ function SettingsContent() {
       setError(t('settings.pcoImportError'));
     } finally {
       setPcoImporting(false);
+      // The route logs both successes and failures, so refresh either way
+      fetchLastSync();
     }
   };
 
@@ -232,6 +262,9 @@ function SettingsContent() {
             </h3>
             <p style={{ fontSize: '14px', color: 'var(--text-secondary)' }}>
               {t('settings.pcoDesc')}
+            </p>
+            <p style={{ fontSize: '13px', color: 'var(--text-tertiary)', marginTop: '6px' }}>
+              {lastSyncText || t('settings.pcoLastSyncNever')}
             </p>
           </div>
           <div style={{ display: 'flex', gap: '10px', alignItems: 'center', flexWrap: 'wrap' }}>

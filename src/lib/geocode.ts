@@ -60,12 +60,20 @@ export async function geocodeAddress(address: string): Promise<{ lat: number; ln
   }
 }
 
+export interface GeocodeBatchOptions {
+  /**
+   * Epoch ms after which the batch stops early. Rows that were not reached
+   * keep their null lat/lng and are picked up by the next run.
+   */
+  deadline?: number;
+}
+
 /**
  * Batch geocode members who have an address but null lat/lng.
  * Respects Nominatim's 1 request/second rate limit.
  * Called after PCO sync upsert completes.
  */
-export async function geocodeMembersWithoutCoords(): Promise<number> {
+export async function geocodeMembersWithoutCoords(opts: GeocodeBatchOptions = {}): Promise<number> {
   // Find members with address but no coords
   const rows = await sql(
     `SELECT id, address_street, address_city, address_state, address_zip
@@ -80,6 +88,8 @@ export async function geocodeMembersWithoutCoords(): Promise<number> {
   let geocoded = 0;
 
   for (const row of rows) {
+    if (opts.deadline && Date.now() >= opts.deadline) break;
+
     const address = buildGeocodingAddress(
       row.address_street || '',
       row.address_city || '',
@@ -133,7 +143,7 @@ export function geocodeHouseChurchAsync(hcId: string, street: string, city: stri
  * Respects Nominatim's 1 request/second rate limit.
  * Called after PCO sync campus upsert completes.
  */
-export async function geocodeHouseChurchesWithoutCoords(): Promise<number> {
+export async function geocodeHouseChurchesWithoutCoords(opts: GeocodeBatchOptions = {}): Promise<number> {
   const rows = await sql(
     `SELECT id, address_street, address_city, address_state, address_zip
      FROM house_churches
@@ -147,6 +157,8 @@ export async function geocodeHouseChurchesWithoutCoords(): Promise<number> {
   let geocoded = 0;
 
   for (const row of rows) {
+    if (opts.deadline && Date.now() >= opts.deadline) break;
+
     const address = buildGeocodingAddress(
       row.address_street || '',
       row.address_city || '',

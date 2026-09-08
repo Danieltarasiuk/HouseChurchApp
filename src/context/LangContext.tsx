@@ -254,6 +254,12 @@ const translations: Translations = {
     'settings.pcoReason.invalid_credentials': 'Invalid credentials',
     'settings.pcoReason.permission_denied': 'Permission denied',
     'settings.pcoReason.pco_unavailable': 'PCO unavailable',
+    'settings.pcoLastSync': 'Last sync: {date} ({source}) — {status}',
+    'settings.pcoLastSyncNever': 'No sync has run yet.',
+    'settings.pcoSource.cron': 'scheduled',
+    'settings.pcoSource.manual': 'manual',
+    'settings.pcoSyncOk': 'Success',
+    'settings.pcoSyncFailed': 'Failed',
   },
   es: {
     'app.title': 'HouseChurchApp',
@@ -498,6 +504,12 @@ const translations: Translations = {
     'settings.pcoReason.invalid_credentials': 'Credenciales inválidas',
     'settings.pcoReason.permission_denied': 'Permiso denegado',
     'settings.pcoReason.pco_unavailable': 'PCO no disponible',
+    'settings.pcoLastSync': 'Última sincronización: {date} ({source}) — {status}',
+    'settings.pcoLastSyncNever': 'Aún no se ha ejecutado ninguna sincronización.',
+    'settings.pcoSource.cron': 'programada',
+    'settings.pcoSource.manual': 'manual',
+    'settings.pcoSyncOk': 'Exitosa',
+    'settings.pcoSyncFailed': 'Fallida',
   },
 };
 

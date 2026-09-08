@@ -152,6 +152,26 @@ CREATE TABLE IF NOT EXISTS pastoral_notes (
   updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
+-- Planning Center OAuth tokens (one row per connected admin)
+CREATE TABLE IF NOT EXISTS pco_tokens (
+  id SERIAL PRIMARY KEY,
+  user_id UUID NOT NULL UNIQUE REFERENCES users(id),
+  access_token TEXT NOT NULL,
+  refresh_token TEXT NOT NULL,
+  expires_at TIMESTAMP WITH TIME ZONE NOT NULL,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+-- Sync history for the Planning Center import (weekly cron + manual runs)
+CREATE TABLE IF NOT EXISTS sync_log (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  source VARCHAR(20) NOT NULL,         -- 'cron' or 'manual'
+  success BOOLEAN NOT NULL,
+  detail TEXT,
+  synced_count INTEGER,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
 -- Indexes for common queries
 CREATE INDEX IF NOT EXISTS idx_members_house_church ON members(house_church_id);
 CREATE INDEX IF NOT EXISTS idx_members_user_id ON members(user_id);
@@ -173,3 +193,4 @@ CREATE INDEX IF NOT EXISTS idx_member_flags_member ON member_flags(member_id);
 CREATE INDEX IF NOT EXISTS idx_member_flags_created_by ON member_flags(created_by);
 CREATE INDEX IF NOT EXISTS idx_member_flags_unresolved ON member_flags(member_id) WHERE is_resolved = false;
 CREATE INDEX IF NOT EXISTS idx_pastoral_notes_pastor_member ON pastoral_notes(pastor_id, member_id);
+CREATE INDEX IF NOT EXISTS idx_sync_log_created_at ON sync_log(created_at DESC);
