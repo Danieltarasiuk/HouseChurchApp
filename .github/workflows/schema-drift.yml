@@ -1,0 +1,50 @@
+name: Schema drift
+
+# Fails the build when src/lib/schema.sql stops describing the live database.
+# The check is strictly read-only: it builds the file into a temporary schema
+# inside a transaction that is always rolled back, then diffs the result
+# against `public`. It never writes to production tables.
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+# A newer run supersedes an in-flight one, so we never hold two database
+# connections for the same branch.
+concurrency:
+  group: schema-drift-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  schema-drift:
+    name: schema.sql matches the database
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      # Fail with a clear, actionable message rather than a confusing
+      # connection error when the secret has not been configured.
+      - name: Verify DATABASE_URL secret is configured
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: |
+          if [ -z "$DATABASE_URL" ]; then
+            echo "::error::The DATABASE_URL repository secret is not set. Add it under Settings > Secrets and variables > Actions > New repository secret."
+            exit 1
+          fi
+
+      - name: Check schema.sql against the live database
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: node scripts/check-schema-drift.mjs

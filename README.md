@@ -55,6 +55,38 @@ Open [http://localhost:3000](http://localhost:3000) in your browser.
 - `npm run build` - Build for production
 - `npm start` - Start production server
 - `npm run lint` - Run ESLint
+- `npm run check:schema` - Verify `src/lib/schema.sql` still matches the live database
+
+## Schema drift check
+
+`src/lib/schema.sql` is the source of truth for the database, and it is meant to
+be exact: a fresh database built from it should run the app, including a first
+Planning Center sync.
+
+Keeping it merely *approximately* right has already caused an outage. The file
+declared `users.password_hash` as nullable while the live column was `NOT NULL`,
+so every new Google sign-in threw a constraint violation that surfaced to users
+as "Access Denied".
+
+`npm run check:schema` guards against that. It builds `schema.sql` into a
+temporary schema inside a transaction, diffs the result against the live
+database, and reports any difference by table — column, constraint, or index,
+with what the file says versus what is live. It exits non-zero on drift, and the
+same check runs in CI on every pull request and push to `main`
+(`.github/workflows/schema-drift.yml`).
+
+The check is strictly read-only. Every statement runs inside `BEGIN … ROLLBACK`,
+the DDL is applied to a randomly named throwaway schema rather than `public`,
+and the script refuses to run at all if `schema.sql` contains transaction
+control, a `search_path` change, or an explicit `public.` reference — anything
+that could let a statement escape the sandbox.
+
+When it fails, either update `schema.sql` to describe the database, or apply the
+migration the file is describing. Do not silence it: a red build here means the
+file is lying about production.
+
+Running it locally needs `DATABASE_URL`, taken from the environment or from
+`.env.local`.
 
 ## Project Structure
 
