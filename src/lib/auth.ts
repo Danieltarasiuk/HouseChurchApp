@@ -4,6 +4,7 @@ import Google from 'next-auth/providers/google';
 import bcryptjs from 'bcryptjs';
 import { sql } from '@/lib/db';
 import { authConfig } from '@/lib/auth.config';
+import { isProtectedPath } from '@/lib/protected-paths';
 
 /**
  * How long a role cached in the JWT is trusted before it is re-read from the
@@ -111,13 +112,12 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
     }),
   ],
   callbacks: {
+    // Middleware builds its NextAuth instance from authConfig, so in practice
+    // that copy of this callback is the one that runs. Kept here, reading the
+    // same shared list, so the two instances can never disagree.
     async authorized({ auth: session, request }) {
-      const isLoggedIn = !!session?.user;
-      const { pathname } = request.nextUrl;
-      const protectedPaths = ['/dashboard', '/discipleship', '/incubator', '/house-churches', '/members', '/attendance', '/prayer', '/pastoral', '/settings'];
-      const isProtected = protectedPaths.some((p) => pathname.startsWith(p));
-      if (isProtected) return isLoggedIn;
-      return true;
+      if (!isProtectedPath(request.nextUrl.pathname)) return true;
+      return !!session?.user;
     },
     async signIn({ user, account }) {
       if (account?.provider === 'google') {

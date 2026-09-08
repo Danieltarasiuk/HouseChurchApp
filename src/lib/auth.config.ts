@@ -1,4 +1,5 @@
 import type { NextAuthConfig } from 'next-auth';
+import { isProtectedPath } from '@/lib/protected-paths';
 
 export const authConfig: NextAuthConfig = {
   pages: {
@@ -9,23 +10,10 @@ export const authConfig: NextAuthConfig = {
   },
   callbacks: {
     async authorized({ auth, request }) {
-      const isLoggedIn = !!auth?.user;
-      const { pathname } = request.nextUrl;
-      const protectedPaths = [
-        '/dashboard',
-        '/discipleship',
-        '/incubator',
-        '/house-churches',
-        '/members',
-        '/attendance',
-        '/prayer',
-      ];
-      const isProtected = protectedPaths.some((p) => pathname.startsWith(p));
-
-      if (isProtected) {
-        return isLoggedIn;
-      }
-      return true;
+      // The matcher in middleware.ts is a catch-all, so this callback is the
+      // one place that decides what requires a session.
+      if (!isProtectedPath(request.nextUrl.pathname)) return true;
+      return !!auth?.user;
     },
     async jwt({ token, user }) {
       if (user) {
