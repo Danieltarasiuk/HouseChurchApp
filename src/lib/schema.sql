@@ -68,6 +68,20 @@ CREATE TABLE IF NOT EXISTS attendance (
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
+-- Attendance sessions: records that attendance WAS TAKEN for a date/type/HC,
+-- independently of who was present. Without this, "never recorded" and
+-- "recorded but nobody came" are indistinguishable, since the attendance
+-- table only stores present rows.
+CREATE TABLE IF NOT EXISTS attendance_sessions (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  date DATE NOT NULL,
+  attendance_type VARCHAR(20) NOT NULL
+    CHECK (attendance_type IN ('sunday_service', 'house_church')),
+  house_church_id UUID REFERENCES house_churches(id),
+  recorded_by UUID REFERENCES users(id),
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
 -- 7&7 Discipleship progress
 CREATE TABLE IF NOT EXISTS discipleship_progress (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -181,6 +195,14 @@ CREATE INDEX IF NOT EXISTS idx_attendance_house_church ON attendance(house_churc
 CREATE INDEX IF NOT EXISTS idx_attendance_member ON attendance(member_id);
 CREATE INDEX IF NOT EXISTS idx_attendance_type ON attendance(attendance_type);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_attendance_member_date_type ON attendance(member_id, date, attendance_type);
+-- COALESCE is required: a NULL house_church_id (sunday_service) would never
+-- conflict with another NULL, so plain column uniqueness would not dedupe.
+CREATE UNIQUE INDEX IF NOT EXISTS idx_attendance_sessions_unique
+  ON attendance_sessions (
+    date,
+    attendance_type,
+    COALESCE(house_church_id, '00000000-0000-0000-0000-000000000000'::uuid)
+  );
 CREATE INDEX IF NOT EXISTS idx_discipleship_user ON discipleship_progress(user_id);
 CREATE INDEX IF NOT EXISTS idx_incubator_user ON incubator_progress(user_id);
 CREATE INDEX IF NOT EXISTS idx_prayer_house_church ON prayer_requests(house_church_id);

@@ -787,6 +787,31 @@ tr:hover td {
   .pastoral-panel { width: 100vw; }
 }
 
+/* Attendance history grid (View Attendance tab) */
+.att-grid-wrap { overflow-x: auto; }
+.att-grid { width: 100%; border-collapse: collapse; font-size: 13px; }
+.att-grid th { position: sticky; top: 0; background: var(--surface); padding: 6px 8px; text-align: center; font-weight: 600; border-bottom: 2px solid var(--border); white-space: nowrap; font-size: 11px; color: var(--text-secondary); }
+.att-grid td { padding: 6px 8px; border-bottom: 1px solid var(--border); white-space: nowrap; text-align: center; }
+.att-name-col { text-align: left !important; min-width: 170px; position: sticky; left: 0; background: var(--surface); z-index: 1; }
+.att-date-count { display: block; font-weight: 400; font-size: 10px; color: var(--text-tertiary); margin-top: 2px; min-height: 12px; }
+.att-mark { font-size: 15px; font-weight: 600; }
+.att-mark-present { color: #22c55e; }
+.att-mark-absent { color: #dc2626; }
+.att-rate-col { font-variant-numeric: tabular-nums; font-weight: 600; }
+.att-mobile-cards { display: none; }
+.att-mobile-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-md); padding: 12px 14px; margin-bottom: 8px; }
+.att-mobile-card-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-bottom: 8px; }
+.att-mobile-dots { display: flex; gap: 4px; flex-wrap: wrap; }
+.att-dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; flex-shrink: 0; }
+.att-dot-present { background: #22c55e; }
+.att-dot-absent { background: #dc2626; }
+.att-dot-none { background: var(--border); }
+
+@media (max-width: 768px) {
+  .att-grid-wrap { display: none; }
+  .att-mobile-cards { display: block; }
+}
+
 /* Settings Page */
 .settings-no-access {
   display: flex;

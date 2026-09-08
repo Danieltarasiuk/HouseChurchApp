@@ -25,11 +25,24 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Invalid attendance_type' }, { status: 400 });
     }
 
-    // Only insert records for members marked present.
-    // "Absent" is inferred: if attendance was taken for this scope (date+type+hc)
-    // but no record exists for a member, they were absent.
-    // Using ON CONFLICT to preserve existing present records — once present, stays present.
-    const presentRecords = records.filter((r: { member_id: string; present: boolean }) => r.present);
+    // "Absent" is inferred: if a session exists for this scope (date+type+hc)
+    // but no attendance row exists for a member, they were absent.
+    const typed = records as { member_id: string; present: boolean }[];
+    const presentRecords = typed.filter((r) => r.present);
+    const absentIds = typed.filter((r) => !r.present).map((r) => r.member_id);
+
+    // Clear rows for members explicitly unchecked in this submission, so
+    // correcting a mistake actually removes the earlier present row.
+    if (absentIds.length > 0) {
+      await sql(
+        `DELETE FROM attendance
+         WHERE date = $1
+           AND attendance_type = $2
+           AND ($3::uuid IS NULL OR house_church_id = $3::uuid)
+           AND member_id = ANY($4::uuid[])`,
+        [date, attendance_type, house_church_id || null, absentIds]
+      );
+    }
 
     let count = 0;
     for (const record of presentRecords) {
@@ -45,6 +58,17 @@ export async function POST(req: NextRequest) {
         console.error('[Attendance POST] Insert failed for member:', record.member_id, insertError);
       }
     }
+
+    // Record that attendance was taken, even if nobody was marked present —
+    // that is what lets the history grid tell "no session" from "all absent".
+    // Bare DO NOTHING: the unique index is on an expression, so it cannot be
+    // named as a conflict target.
+    await sql(
+      `INSERT INTO attendance_sessions (date, attendance_type, house_church_id, recorded_by)
+       VALUES ($1, $2, $3, $4)
+       ON CONFLICT DO NOTHING`,
+      [date, attendance_type, house_church_id || null, session.user.id ?? null]
+    );
 
     return NextResponse.json({ success: true, count });
   } catch (error) {
