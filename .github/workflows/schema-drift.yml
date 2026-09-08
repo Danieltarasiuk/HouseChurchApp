@@ -1,9 +1,14 @@
 name: Schema drift
 
 # Fails the build when src/lib/schema.sql stops describing the live database.
-# The check is strictly read-only: it builds the file into a temporary schema
-# inside a transaction that is always rolled back, then diffs the result
-# against `public`. It never writes to production tables.
+#
+# Two connections, so no writable production credential is needed in CI:
+#   SCHEMA_SOURCE_URL   read-only role on production. Only pg_catalog is
+#                       queried, so a role with no table privileges can read
+#                       the full structure without being able to SELECT a row.
+#                       Read live, so production cannot silently drift.
+#   SCHEMA_SANDBOX_URL  a throwaway Neon branch where schema.sql is built and
+#                       rolled back. Holds no production data.
 
 on:
   pull_request:
@@ -34,17 +39,22 @@ jobs:
         run: npm ci
 
       # Fail with a clear, actionable message rather than a confusing
-      # connection error when the secret has not been configured.
-      - name: Verify DATABASE_URL secret is configured
+      # connection error when the secrets have not been configured.
+      - name: Verify secrets are configured
         env:
-          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          SCHEMA_SOURCE_URL: ${{ secrets.SCHEMA_SOURCE_URL }}
+          SCHEMA_SANDBOX_URL: ${{ secrets.SCHEMA_SANDBOX_URL }}
         run: |
-          if [ -z "$DATABASE_URL" ]; then
-            echo "::error::The DATABASE_URL repository secret is not set. Add it under Settings > Secrets and variables > Actions > New repository secret."
+          missing=""
+          [ -z "$SCHEMA_SOURCE_URL" ] && missing="$missing SCHEMA_SOURCE_URL"
+          [ -z "$SCHEMA_SANDBOX_URL" ] && missing="$missing SCHEMA_SANDBOX_URL"
+          if [ -n "$missing" ]; then
+            echo "::error::Missing repository secret(s):$missing. Add them under Settings > Secrets and variables > Actions > New repository secret."
             exit 1
           fi
 
       - name: Check schema.sql against the live database
         env:
-          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          SCHEMA_SOURCE_URL: ${{ secrets.SCHEMA_SOURCE_URL }}
+          SCHEMA_SANDBOX_URL: ${{ secrets.SCHEMA_SANDBOX_URL }}
         run: node scripts/check-schema-drift.mjs

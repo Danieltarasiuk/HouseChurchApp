@@ -75,18 +75,38 @@ with what the file says versus what is live. It exits non-zero on drift, and the
 same check runs in CI on every pull request and push to `main`
 (`.github/workflows/schema-drift.yml`).
 
-The check is strictly read-only. Every statement runs inside `BEGIN … ROLLBACK`,
-the DDL is applied to a randomly named throwaway schema rather than `public`,
-and the script refuses to run at all if `schema.sql` contains transaction
-control, a `search_path` change, or an explicit `public.` reference — anything
-that could let a statement escape the sandbox.
+The check is strictly read-only. The reference schema is read inside an
+explicitly `READ ONLY` transaction, the DDL is built in a randomly named
+throwaway schema inside `BEGIN … ROLLBACK` rather than in `public`, and the
+script refuses to run at all if `schema.sql` contains transaction control, a
+`search_path` change, or an explicit `public.` reference — anything that could
+let a statement escape the sandbox.
 
 When it fails, either update `schema.sql` to describe the database, or apply the
 migration the file is describing. Do not silence it: a red build here means the
 file is lying about production.
 
-Running it locally needs `DATABASE_URL`, taken from the environment or from
-`.env.local`.
+### Connections
+
+| Variable | Purpose |
+| --- | --- |
+| `SCHEMA_SOURCE_URL` | Database whose live schema is the reference. Only `pg_catalog` is queried, so a role with **no table privileges** suffices — it can read the full structure without being able to `SELECT` a row. |
+| `SCHEMA_SANDBOX_URL` | Where `schema.sql` is built and thrown away. Needs `CREATE` privilege. Optional; defaults to the source. |
+
+`DATABASE_URL` is accepted as an alias for `SCHEMA_SOURCE_URL`, so locally the
+existing `.env.local` is enough. In CI they are separate repository secrets, so
+no writable production credential is needed.
+
+Keep `SCHEMA_SOURCE_URL` pointed at **production**. Pointing it at a Neon branch
+would compare the file against a stale snapshot — branches diverge from their
+parent at creation and never re-sync — which would silently stop detecting the
+drift this check exists to catch.
+
+> **Note on pooled connections.** Neon connection strings use a pooled endpoint.
+> Never set a session-level `SET` (such as `default_transaction_read_only`) on
+> one: the setting persists on the pooled backend after you disconnect and gets
+> handed to other clients, including the application. Use transaction-scoped
+> `BEGIN TRANSACTION READ ONLY` or `SET LOCAL` instead.
 
 ## Project Structure
 
