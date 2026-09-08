@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { auth } from '@/lib/auth';
 import { sql } from '@/lib/db';
 import { geocodeMembersWithoutCoords, geocodeHouseChurchesWithoutCoords } from '@/lib/geocode';
+import { getValidPcoToken, type PcoErrorReason } from '@/lib/pco';
 
 interface PcoPerson {
   id: string;
@@ -42,42 +43,13 @@ interface SyncedPerson {
   address_zip: string;
 }
 
-async function getValidToken(userId: string): Promise<string | null> {
-  const rows = await sql(
-    'SELECT access_token, refresh_token, expires_at FROM pco_tokens WHERE user_id = $1',
-    [userId]
-  );
-
-  if (rows.length === 0) return null;
-
-  const { access_token, refresh_token, expires_at } = rows[0];
-
-  if (new Date(expires_at) > new Date()) {
-    return access_token;
-  }
-
-  const res = await fetch('https://api.planningcenteronline.com/oauth/token', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      grant_type: 'refresh_token',
-      refresh_token,
-      client_id: process.env.PCO_APP_ID!,
-      client_secret: process.env.PCO_SECRET!,
-    }),
-  });
-
-  if (!res.ok) return null;
-
-  const data = await res.json();
-
-  await sql(
-    `UPDATE pco_tokens SET access_token = $1, refresh_token = $2, expires_at = NOW() + INTERVAL '7200 seconds' WHERE user_id = $3`,
-    [data.access_token, data.refresh_token, userId]
-  );
-
-  return data.access_token;
-}
+const TOKEN_ERROR_MESSAGES: Record<PcoErrorReason, string> = {
+  not_connected: 'Planning Center not connected. Please connect first.',
+  missing_credentials: 'Planning Center credentials are not configured on the server (PCO_APP_ID / PCO_SECRET).',
+  invalid_credentials: 'Planning Center authorization expired or was revoked. Please reconnect.',
+  permission_denied: 'Planning Center denied access. Check the app permissions in PCO.',
+  pco_unavailable: 'Planning Center is unavailable. Please try again later.',
+};
 
 interface CampusInfo {
   name: string;
@@ -212,10 +184,15 @@ export async function POST() {
   }
 
   try {
-    const token = await getValidToken(session.user.id!);
-    if (!token) {
-      return NextResponse.json({ error: 'Planning Center not connected. Please connect first.' }, { status: 400 });
+    const tokenResult = await getValidPcoToken(session.user.id!);
+    if (tokenResult.error) {
+      const status = tokenResult.error === 'pco_unavailable' ? 502 : 400;
+      return NextResponse.json(
+        { error: TOKEN_ERROR_MESSAGES[tokenResult.error], reason: tokenResult.error },
+        { status }
+      );
     }
+    const token = tokenResult.token;
 
     // 1. Fetch campuses and active people from PCO
     const [pcoCampuses, peopleResult] = await Promise.all([

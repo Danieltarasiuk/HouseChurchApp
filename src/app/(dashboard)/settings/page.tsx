@@ -53,6 +53,7 @@ function SettingsContent() {
   const [pcoConnected, setPcoConnected] = useState(false);
   const [pcoImporting, setPcoImporting] = useState(false);
   const [pcoResult, setPcoResult] = useState('');
+  const [pcoFailReason, setPcoFailReason] = useState('');
 
   const fetchUsers = useCallback(async () => {
     try {
@@ -102,9 +103,17 @@ function SettingsContent() {
       fetch('/api/planning-center/status')
         .then((res) => res.json())
         .then((data) => {
-          if (data.connected) setPcoConnected(true);
+          if (data.connected) {
+            setPcoConnected(true);
+            setPcoFailReason('');
+          } else {
+            setPcoConnected(false);
+            setPcoFailReason(data.reason || '');
+          }
         })
-        .catch(() => {});
+        .catch(() => {
+          setPcoFailReason('pco_unavailable');
+        });
     }
   }, [status, isAdmin]);
 
@@ -244,11 +253,19 @@ function SettingsContent() {
             ) : (
               <a href="/api/planning-center/authorize" className="btn btn-primary" style={{ textDecoration: 'none' }}>
                 <LinkIcon size={14} />
-                {t('settings.pcoConnect')}
+                {pcoFailReason ? t('settings.pcoReconnect') : t('settings.pcoConnect')}
               </a>
             )}
           </div>
         </div>
+        {pcoFailReason && !pcoConnected && (
+          <div className="settings-alert settings-alert-error" role="alert" style={{ marginTop: '16px', marginBottom: 0 }}>
+            {t('settings.pcoConnFailed').replace(
+              '{reason}',
+              t('settings.pcoReason.' + pcoFailReason)
+            )}
+          </div>
+        )}
         {pcoResult && (
           <div className="settings-alert settings-alert-success" role="status" style={{ marginTop: '16px', marginBottom: 0 }}>
             {pcoResult}

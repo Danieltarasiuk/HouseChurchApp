@@ -248,6 +248,12 @@ const translations: Translations = {
     'settings.pcoError': 'Failed to connect Planning Center.',
     'settings.pcoSyncSuccess': 'Synced {imported} members, {campuses} campuses. {skipped} skipped (no email), {archived} archived. {total} total in PCO.',
     'settings.pcoImportError': 'Failed to sync members from Planning Center.',
+    'settings.pcoConnFailed': 'Connection failed: {reason}',
+    'settings.pcoReconnect': 'Reconnect Planning Center',
+    'settings.pcoReason.missing_credentials': 'Missing credentials',
+    'settings.pcoReason.invalid_credentials': 'Invalid credentials',
+    'settings.pcoReason.permission_denied': 'Permission denied',
+    'settings.pcoReason.pco_unavailable': 'PCO unavailable',
   },
   es: {
     'app.title': 'HouseChurchApp',
@@ -486,6 +492,12 @@ const translations: Translations = {
     'settings.pcoError': 'Error al conectar Planning Center.',
     'settings.pcoSyncSuccess': '{imported} miembros sincronizados, {campuses} campus. {skipped} omitidos (sin correo), {archived} archivados. {total} total en PCO.',
     'settings.pcoImportError': 'Error al sincronizar miembros desde Planning Center.',
+    'settings.pcoConnFailed': 'Conexión fallida: {reason}',
+    'settings.pcoReconnect': 'Reconectar Planning Center',
+    'settings.pcoReason.missing_credentials': 'Credenciales faltantes',
+    'settings.pcoReason.invalid_credentials': 'Credenciales inválidas',
+    'settings.pcoReason.permission_denied': 'Permiso denegado',
+    'settings.pcoReason.pco_unavailable': 'PCO no disponible',
   },
 };
 
