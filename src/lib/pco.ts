@@ -218,9 +218,11 @@ interface HouseholdInfo {
 /**
  * Maps each PCO person ID to their household. A person in several households
  * keeps the first one seen. Never throws: a households failure logs and
- * returns what it has so far, so it cannot fail the whole sync.
+ * returns null, so it cannot fail the whole sync — and null (as opposed to an
+ * empty Map, which means "fetched fine, no households") tells the sync to
+ * preserve members' existing household values rather than wiping them.
  */
-async function fetchHouseholds(token: string): Promise<Map<string, HouseholdInfo>> {
+async function fetchHouseholds(token: string): Promise<Map<string, HouseholdInfo> | null> {
   const householdMap = new Map<string, HouseholdInfo>(); // person pco_id -> household
   let nextUrl: string | null =
     'https://api.planningcenteronline.com/people/v2/households?per_page=100&include=people';
@@ -232,7 +234,7 @@ async function fetchHouseholds(token: string): Promise<Map<string, HouseholdInfo
       });
       if (!res.ok) {
         console.error(`PCO households fetch failed (non-fatal): ${res.status}`);
-        return new Map();
+        return null;
       }
       const data = await res.json();
 
@@ -249,7 +251,7 @@ async function fetchHouseholds(token: string): Promise<Map<string, HouseholdInfo
     }
   } catch (e) {
     console.error('PCO households fetch error (non-fatal):', e);
-    return new Map();
+    return null;
   }
 
   return householdMap;
@@ -417,7 +419,12 @@ export async function runPcoSync(token: string, opts: PcoSyncOptions = {}): Prom
     syncedPcoIds.push(person.pco_id);
     // Resolve house church from PCO campus — null if person has no campus
     const hcId = person.campus_pco_id ? (campusToHcId.get(person.campus_pco_id) || null) : null;
-    const household = households.get(person.pco_id);
+    const household = households?.get(person.pco_id);
+    // When the households fetch failed (households === null), keep each
+    // member's existing household values instead of overwriting with NULL.
+    // On success, overwrite plainly so PCO household changes and removals
+    // still propagate.
+    const householdsOk = households !== null;
 
     const result = await sql(
       `INSERT INTO members (first_name, last_name, email, phone, house_church_id,
@@ -438,8 +445,8 @@ export async function runPcoSync(token: string, opts: PcoSyncOptions = {}): Prom
          address_state = COALESCE(NULLIF(EXCLUDED.address_state, ''), members.address_state),
          address_zip = COALESCE(NULLIF(EXCLUDED.address_zip, ''), members.address_zip),
          campus_pco_id = EXCLUDED.campus_pco_id,
-         pco_household_id = EXCLUDED.pco_household_id,
-         household_name = EXCLUDED.household_name,
+         pco_household_id = CASE WHEN $16 THEN EXCLUDED.pco_household_id ELSE members.pco_household_id END,
+         household_name = CASE WHEN $16 THEN EXCLUDED.household_name ELSE members.household_name END,
          is_active = true
        RETURNING id`,
       [
@@ -450,6 +457,7 @@ export async function runPcoSync(token: string, opts: PcoSyncOptions = {}): Prom
         person.address_state || null, person.address_zip || null,
         person.pco_id, person.campus_pco_id || null,
         household?.householdId ?? null, household?.householdName || null,
+        householdsOk,
       ]
     );
 

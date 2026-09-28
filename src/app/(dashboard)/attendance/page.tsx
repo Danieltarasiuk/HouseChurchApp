@@ -677,9 +677,11 @@ export default function AttendancePage() {
     <>
       {m.first_name} {m.last_name}
       {m.attendance_note && (
-        <div style={{ color: 'var(--text-tertiary)', fontSize: '12px', fontWeight: 400 }}>
+        // span, not div: this renders inside a <span> in the mobile cards,
+        // and a div inside a span is invalid HTML (hydration warnings).
+        <span style={{ display: 'block', color: 'var(--text-tertiary)', fontSize: '12px', fontWeight: 400 }}>
           {m.attendance_note}
-        </div>
+        </span>
       )}
     </>
   );
