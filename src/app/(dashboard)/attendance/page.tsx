@@ -27,6 +27,15 @@ interface HistoryData {
   records: { member_id: string; date: string }[];
 }
 
+/**
+ * History for the Record tab's rate sort. sessionScopes is set only for house
+ * church attendance across all HCs, so each member can be scored against
+ * their own house church's sessions rather than every HC's meeting dates.
+ */
+interface RateHistory extends HistoryData {
+  sessionScopes?: { date: string; house_church_id: string | null }[];
+}
+
 interface SessionRow {
   date: string;
   attendance_type: string;
@@ -139,7 +148,30 @@ function sortByRate(list: Member[], rateOf: (id: string) => Rate, desc: boolean)
 }
 
 /** Attended/held per member from a history payload. */
-function ratesFromHistory(h: HistoryData): (id: string) => Rate {
+function ratesFromHistory(h: RateHistory, members: Member[]): (id: string) => Rate {
+  if (h.sessionScopes) {
+    // Held = sessions of the member's own house church; attended = their
+    // present records on those dates. No house church → nothing held.
+    const heldByHc = new Map<string, Set<string>>();
+    for (const s of h.sessionScopes) {
+      if (!s.house_church_id) continue;
+      if (!heldByHc.has(s.house_church_id)) heldByHc.set(s.house_church_id, new Set());
+      heldByHc.get(s.house_church_id)!.add(s.date);
+    }
+    const hcOf = new Map(members.map(m => [m.id, m.house_church_id]));
+    const heldFor = (id: string) => {
+      const hc = hcOf.get(id);
+      return (hc && heldByHc.get(hc)) || new Set<string>();
+    };
+    const attended = new Map<string, number>();
+    for (const r of h.records) {
+      if (heldFor(r.member_id).has(r.date)) {
+        attended.set(r.member_id, (attended.get(r.member_id) || 0) + 1);
+      }
+    }
+    return (id: string) => ({ attended: attended.get(id) || 0, held: heldFor(id).size });
+  }
+
   const held = new Set(h.sessions);
   const attended = new Map<string, number>();
   for (const r of h.records) {
@@ -196,7 +228,7 @@ export default function AttendancePage() {
 
   // Record tab: grouping, rate-sort history cache, note editing
   const [recordGroup, setRecordGroup] = useState<GroupMode>('alpha');
-  const [rateCache, setRateCache] = useState<Record<string, HistoryData>>({});
+  const [rateCache, setRateCache] = useState<Record<string, RateHistory>>({});
   const rateInFlight = useRef<Set<string>>(new Set());
   const [editingNoteId, setEditingNoteId] = useState<string | null>(null);
   const [noteDraft, setNoteDraft] = useState('');
@@ -262,15 +294,29 @@ export default function AttendancePage() {
     const params = new URLSearchParams({ attendance_type: eventType, months: '2' });
     if (recordHcId) params.set('house_church_id', recordHcId);
 
-    fetch(`/api/attendance/history?${params}`)
-      .then(r => r.json())
-      .then(data => {
+    // House church with "All" selected: also fetch each session's HC so
+    // members are scored only against their own house church's sessions.
+    const needScopes = eventType === 'house_church' && !recordHcId;
+
+    Promise.all([
+      fetch(`/api/attendance/history?${params}`).then(r => r.json()),
+      needScopes
+        ? fetch(`/api/attendance/sessions?${params}`).then(r => r.json())
+        : Promise.resolve(null),
+    ])
+      .then(([data, scopeData]) => {
         setRateCache(prev => ({
           ...prev,
           [rateKey]: {
             sessions: data.sessions || [],
             meeting_day: data.meeting_day ?? null,
             records: data.records || [],
+            ...(scopeData && {
+              sessionScopes: ((scopeData.sessions || []) as SessionRow[]).map(s => ({
+                date: s.date,
+                house_church_id: s.house_church_id,
+              })),
+            }),
           },
         }));
       })
@@ -442,7 +488,7 @@ export default function AttendancePage() {
   const recordSorted: Member[] = recordGroups
     ? []
     : recordRateSort && recordRateHistory
-      ? sortByRate(members, ratesFromHistory(recordRateHistory), recordGroup === 'rate_desc')
+      ? sortByRate(members, ratesFromHistory(recordRateHistory, members), recordGroup === 'rate_desc')
       : [...members].sort(byLastName);
 
   // --- View tab derived data ---
