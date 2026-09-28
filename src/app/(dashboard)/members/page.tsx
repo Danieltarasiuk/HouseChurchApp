@@ -27,6 +27,7 @@ interface Member {
   address_zip: string | null;
   latitude: number | null;
   longitude: number | null;
+  attendance_note: string | null;
 }
 
 const roleLabel = (role: string, t: (k: string) => string) => {
@@ -309,6 +310,11 @@ export default function MembersPage() {
                         <td>
                           <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
                             {member.first_name} {member.last_name}
+                            {member.attendance_note && (
+                              <span style={{ color: 'var(--text-tertiary)', fontSize: '13px' }}>
+                                — {member.attendance_note}
+                              </span>
+                            )}
                             {member.role !== 'member' && (
                               <span className={roleBadgeClass(member.role)} style={{ fontSize: '10px', padding: '1px 7px' }}>
                                 {roleLabel(member.role, t)}

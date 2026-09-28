@@ -77,7 +77,10 @@ CREATE TABLE IF NOT EXISTS members (
   latitude DOUBLE PRECISION,
   longitude DOUBLE PRECISION,
   joined_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-  is_active BOOLEAN DEFAULT true
+  is_active BOOLEAN DEFAULT true,
+  pco_household_id TEXT,           -- synced from PCO households
+  household_name TEXT,             -- synced from PCO households
+  attendance_note TEXT             -- app-owned; the PCO sync never touches it
 );
 
 -- House church leadership references, added now that members exists.
