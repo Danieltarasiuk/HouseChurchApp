@@ -20,6 +20,7 @@ export async function GET() {
               m.date_of_birth,
               m.address_street, m.address_city, m.address_state, m.address_zip,
               m.latitude, m.longitude,
+              m.pco_household_id, m.household_name, m.attendance_note,
               COALESCE(u.role, m.role, 'member') AS role
        FROM members m
        LEFT JOIN house_churches hc ON m.house_church_id = hc.id

@@ -37,7 +37,8 @@ export async function GET(req: NextRequest) {
              COALESCE(m.email, '') AS email,
              COALESCE(u.role, m.role, 'member') AS role,
              m.house_church_id, hc.name AS house_church_name,
-             m.user_id, m.date_of_birth
+             m.user_id, m.date_of_birth,
+             m.pco_household_id, m.household_name, m.attendance_note
       FROM members m
       LEFT JOIN users u ON m.user_id = u.id
       LEFT JOIN house_churches hc ON m.house_church_id = hc.id
@@ -161,6 +162,9 @@ export async function GET(req: NextRequest) {
       house_church_id: m.house_church_id,
       house_church_name: m.house_church_name,
       user_id: m.user_id,
+      pco_household_id: m.pco_household_id,
+      household_name: m.household_name,
+      attendance_note: m.attendance_note,
       date_of_birth: m.date_of_birth ? (m.date_of_birth instanceof Date ? m.date_of_birth.toISOString().split('T')[0] : String(m.date_of_birth).split('T')[0]) : null,
       last_meetings: meetingMap.get(m.id) || {},
       last_contacted: lastContactedMap.get(m.id) || null,
