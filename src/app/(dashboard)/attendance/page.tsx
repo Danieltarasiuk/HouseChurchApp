@@ -630,6 +630,60 @@ export default function AttendancePage() {
     ? (sessions.reduce((sum, s) => sum + (s.kid_count ?? 0), 0) / sessions.length).toFixed(1)
     : '0';
 
+  /**
+   * One-click toggle of a single mark in the View grid. Optimistic: the
+   * grid and the Recorded Sessions counts update immediately and revert
+   * if the save fails. Reuses the roster POST with a one-member payload —
+   * present inserts the row, absent deletes it; the session row exists.
+   */
+  const toggleViewMark = async (memberId: string, d: string) => {
+    if (!history || !sessionSet.has(d)) return;
+    const was = presentOn(memberId, d);
+    const hcId = viewType === 'house_church' ? viewHcId || null : null;
+
+    const applyLocal = (present: boolean) => {
+      setHistory(h => h && ({
+        ...h,
+        records: present
+          ? [...h.records, { member_id: memberId, date: d }]
+          : h.records.filter(r => !(r.member_id === memberId && r.date === d)),
+      }));
+      const m = allMembers.find(mm => mm.id === memberId);
+      const kid = m ? isKidOn(m, d) : false;
+      const delta = present ? 1 : -1;
+      setSessions(prev => prev.map(sess => {
+        if (sess.date !== d || sess.attendance_type !== viewType) return sess;
+        if (viewType === 'house_church' && sess.house_church_id !== hcId) return sess;
+        return {
+          ...sess,
+          present_count: sess.present_count + delta,
+          adult_count: (sess.adult_count ?? 0) + (kid ? 0 : delta),
+          kid_count: (sess.kid_count ?? 0) + (kid ? delta : 0),
+        };
+      }));
+    };
+
+    applyLocal(!was);
+    try {
+      const res = await fetch('/api/attendance', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          date: d,
+          attendance_type: viewType,
+          house_church_id: hcId,
+          records: [{ member_id: memberId, present: !was }],
+        }),
+      });
+      if (!res.ok) throw new Error();
+      // Saved attendance changes the rates the Record tab sorts by
+      setRateCache({});
+    } catch {
+      applyLocal(was);
+      alert(t('att.toggleError'));
+    }
+  };
+
   const canDeleteSession = (s: SessionRow) =>
     userRole === 'admin'
     || (userRole === 'house_church_pastor'
@@ -1049,7 +1103,15 @@ export default function AttendancePage() {
                               const present = presentOn(m.id, d);
                               return (
                                 <td key={d}>
-                                  <span className={`att-mark ${present ? 'att-mark-present' : 'att-mark-absent'}`}>
+                                  <span
+                                    className={`att-mark ${present ? 'att-mark-present' : 'att-mark-absent'}`}
+                                    role="button"
+                                    tabIndex={0}
+                                    title={t('att.clickToggle')}
+                                    style={{ cursor: 'pointer' }}
+                                    onClick={() => toggleViewMark(m.id, d)}
+                                    onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggleViewMark(m.id, d); } }}
+                                  >
                                     {present ? '✓' : '✗'}
                                   </span>
                                 </td>
@@ -1079,10 +1141,19 @@ export default function AttendancePage() {
                           </div>
                           <div className="att-mobile-dots">
                             {columns.map(d => {
-                              const cls = !sessionSet.has(d)
+                              const held = sessionSet.has(d);
+                              const cls = !held
                                 ? 'att-dot-none'
                                 : presentOn(m.id, d) ? 'att-dot-present' : 'att-dot-absent';
-                              return <span key={d} className={`att-dot ${cls}`} title={dayMonth(d)} />;
+                              return (
+                                <span
+                                  key={d}
+                                  className={`att-dot ${cls}`}
+                                  title={dayMonth(d)}
+                                  style={held ? { cursor: 'pointer' } : undefined}
+                                  onClick={held ? () => toggleViewMark(m.id, d) : undefined}
+                                />
+                              );
                             })}
                           </div>
                         </div>
