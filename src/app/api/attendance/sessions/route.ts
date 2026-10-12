@@ -51,7 +51,15 @@ export async function GET(req: NextRequest) {
                WHERE a.date = s.date
                  AND a.attendance_type = s.attendance_type
                  AND a.house_church_id IS NOT DISTINCT FROM s.house_church_id
-                 AND a.present = true) AS present_count
+                 AND a.present = true) AS present_count,
+              (SELECT COUNT(*)::int FROM attendance a
+               JOIN members m ON m.id = a.member_id
+               WHERE a.date = s.date
+                 AND a.attendance_type = s.attendance_type
+                 AND a.house_church_id IS NOT DISTINCT FROM s.house_church_id
+                 AND a.present = true
+                 AND m.date_of_birth IS NOT NULL
+                 AND m.date_of_birth > s.date - INTERVAL '18 years') AS kid_count
        FROM attendance_sessions s
        LEFT JOIN house_churches hc ON s.house_church_id = hc.id
        LEFT JOIN users u ON s.recorded_by = u.id
@@ -70,6 +78,8 @@ export async function GET(req: NextRequest) {
         house_church_name: r.house_church_name,
         recorded_by_name: r.recorded_by_name,
         present_count: r.present_count,
+        kid_count: r.kid_count,
+        adult_count: r.present_count - r.kid_count,
       })),
     });
   } catch (error) {

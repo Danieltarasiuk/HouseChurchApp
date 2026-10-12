@@ -43,6 +43,8 @@ interface SessionRow {
   house_church_name: string | null;
   recorded_by_name: string | null;
   present_count: number;
+  adult_count?: number;
+  kid_count?: number;
 }
 
 type GroupMode = 'household' | 'house_church' | 'alpha' | 'rate_desc' | 'rate_asc';
@@ -586,6 +588,14 @@ export default function AttendancePage() {
     return `${dd}/${mm}`;
   };
 
+  // Rolling average per service over the sessions in the selected range
+  const avgAdults = sessions.length > 0
+    ? (sessions.reduce((sum, s) => sum + (s.adult_count ?? 0), 0) / sessions.length).toFixed(1)
+    : '0';
+  const avgKids = sessions.length > 0
+    ? (sessions.reduce((sum, s) => sum + (s.kid_count ?? 0), 0) / sessions.length).toFixed(1)
+    : '0';
+
   const canDeleteSession = (s: SessionRow) =>
     userRole === 'admin'
     || (userRole === 'house_church_pastor'
@@ -1028,8 +1038,11 @@ export default function AttendancePage() {
 
           {!(viewType === 'house_church' && !viewHcId) && !viewLoading && sessions.length > 0 && (
             <div className="card" style={{ marginTop: '16px' }}>
-              <div className="card-header">
+              <div className="card-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '8px' }}>
                 <h3 className="card-title">{t('att.sessions')}</h3>
+                <span style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>
+                  {t('att.avgSplit').replace('{a}', avgAdults).replace('{k}', avgKids)}
+                </span>
               </div>
               <div style={{ padding: '8px 16px' }}>
                 {sessions.map(s => (
@@ -1047,6 +1060,8 @@ export default function AttendancePage() {
                         : s.house_church_name || t('att.houseChurch')}
                       <span style={noteStyle}>
                         {t('att.present')}: {s.present_count}
+                        {s.adult_count != null && s.kid_count != null &&
+                          ` (${s.adult_count} ${t('att.adultsShort')} / ${s.kid_count} ${t('att.kidsShort')})`}
                         {s.recorded_by_name && ` · ${t('att.recordedBy')} ${s.recorded_by_name}`}
                       </span>
                     </span>
