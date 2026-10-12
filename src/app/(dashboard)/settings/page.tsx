@@ -282,6 +282,12 @@ function SettingsContent() {
                   <CloudDownload size={14} />
                   {pcoImporting ? t('settings.pcoSyncing') : t('settings.pcoSync')}
                 </button>
+                {/* Re-run OAuth even while connected — needed when the app
+                    gains a scope (e.g. check_ins) the stored token lacks. */}
+                <a href="/api/planning-center/authorize" className="btn btn-ghost" style={{ textDecoration: 'none' }}>
+                  <LinkIcon size={14} />
+                  {t('settings.pcoReconnect')}
+                </a>
               </>
             ) : (
               <a href="/api/planning-center/authorize" className="btn btn-primary" style={{ textDecoration: 'none' }}>
