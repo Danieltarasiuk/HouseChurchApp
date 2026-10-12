@@ -579,6 +579,15 @@ export default function AttendancePage() {
     }
     return { adults, kids };
   };
+  const heldSplits = heldDates
+    .map(d => splitForDate(d))
+    .filter((x): x is { adults: number; kids: number } => x !== null);
+  const avgHeader = heldSplits.length > 0
+    ? {
+        adults: heldSplits.reduce((sum, x) => sum + x.adults, 0) / heldSplits.length,
+        kids: heldSplits.reduce((sum, x) => sum + x.kids, 0) / heldSplits.length,
+      }
+    : null;
 
   const rateParts = (memberId: string): Rate => ({
     attended: heldDates.filter(d => presentOn(memberId, d)).length,
@@ -992,18 +1001,32 @@ export default function AttendancePage() {
                           return (
                             <th key={d}>
                               {dayMonth(d)}
-                              <span className="att-date-count">
-                                {split ? split.adults + split.kids : ''}
-                              </span>
                               {split && (
                                 <span className="att-date-count" style={{ display: 'block', fontWeight: 400 }}>
                                   {split.adults}{t('att.adultAbbr')} {split.kids}{t('att.kidAbbr')}
                                 </span>
                               )}
+                              <span className="att-date-count" style={{ display: 'block' }}>
+                                {split ? `${split.adults + split.kids} ${t('att.total')}` : ''}
+                              </span>
                             </th>
                           );
                         })}
-                        <th>{t('att.rate')}</th>
+                        <th title={avgHeader ? t('att.avgSplit')
+                          .replace('{a}', avgHeader.adults.toFixed(1))
+                          .replace('{k}', avgHeader.kids.toFixed(1)) : undefined}>
+                          {t('att.rate')}
+                          {avgHeader && (
+                            <>
+                              <span className="att-date-count" style={{ display: 'block', fontWeight: 400 }}>
+                                {avgHeader.adults.toFixed(1)}{t('att.adultAbbr')} {avgHeader.kids.toFixed(1)}{t('att.kidAbbr')}
+                              </span>
+                              <span className="att-date-count" style={{ display: 'block' }}>
+                                {(avgHeader.adults + avgHeader.kids).toFixed(1)} {t('att.total')}
+                              </span>
+                            </>
+                          )}
+                        </th>
                       </tr>
                     </thead>
                     <tbody>
