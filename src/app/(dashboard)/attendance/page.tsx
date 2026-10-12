@@ -224,6 +224,7 @@ export default function AttendancePage() {
   const [selectedHcId, setSelectedHcId] = useState<string>('');
   const [attendance, setAttendance] = useState<Record<string, boolean>>({});
   const [showMinors, setShowMinors] = useState(false);
+  const [importingKids, setImportingKids] = useState(false);
   const [loading, setLoading] = useState(true);
 
   // Record tab: grouping, rate-sort history cache, note editing
@@ -432,6 +433,41 @@ export default function AttendancePage() {
       alert(t('att.noteError'));
     } finally {
       setNoteSaving(false);
+    }
+  };
+
+  /** Ticks everyone checked in to the Sunday event in PCO Check-Ins, plus whoever checked them in. */
+  const importKidsFromCheckIn = async () => {
+    setImportingKids(true);
+    try {
+      const res = await fetch(`/api/attendance/pco-checkins?date=${date}`);
+      const data = await res.json();
+      if (!res.ok) {
+        alert(`${t('att.importKidsError')}: ${data.error || res.status}`);
+        return;
+      }
+      const kidIds: string[] = data.kid_member_ids || [];
+      const adultIds: string[] = data.adult_member_ids || [];
+      const ids = [...kidIds, ...adultIds];
+      if (ids.length === 0) {
+        alert(t('att.importKidsNone'));
+        return;
+      }
+      // Kids are hidden by default and only visible members get saved.
+      setShowMinors(true);
+      setAttendance(prev => {
+        const next = { ...prev };
+        ids.forEach(id => { next[id] = true; });
+        return next;
+      });
+      alert(t('att.importKidsDone')
+        .replace('{n}', String(kidIds.length))
+        .replace('{a}', String(adultIds.length))
+        .replace('{date}', date));
+    } catch {
+      alert(t('att.importKidsError'));
+    } finally {
+      setImportingKids(false);
     }
   };
 
@@ -744,6 +780,18 @@ export default function AttendancePage() {
                 <input type="checkbox" checked={showMinors} onChange={() => setShowMinors(!showMinors)} />
                 {t('mem.showMinors')}
               </label>
+
+              {eventType === 'sunday_service' && (
+                <button
+                  type="button"
+                  className="btn btn-ghost"
+                  style={{ alignSelf: 'flex-end', marginBottom: '4px' }}
+                  onClick={importKidsFromCheckIn}
+                  disabled={importingKids}
+                >
+                  {importingKids ? t('dashboard.loading') : t('att.importKids')}
+                </button>
+              )}
 
               {eventType === 'house_church' && (
                 <div className="form-group" style={{ flex: 1, minWidth: '200px' }}>

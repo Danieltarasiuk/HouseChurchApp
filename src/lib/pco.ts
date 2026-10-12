@@ -498,3 +498,84 @@ export async function runPcoSync(token: string, opts: PcoSyncOptions = {}): Prom
     campuses: pcoCampuses.size,
   };
 }
+
+// ---------------------------------------------------------------------------
+// PCO Check-Ins (kids' Sunday attendance)
+// ---------------------------------------------------------------------------
+
+/** Name of the PCO Check-Ins event that represents the Sunday service. */
+export const SUNDAY_CHECKIN_EVENT_NAME = 'Reunión Dominical Español';
+
+/** Thrown when Check-Ins is unreachable; `status` is the PCO HTTP status. */
+export class PcoCheckInsError extends Error {
+  constructor(message: string, public status: number) {
+    super(message);
+  }
+}
+
+const normalizeName = (s: string) =>
+  s.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().trim();
+
+const CHURCH_TZ = 'America/New_York';
+const localDate = (iso: string) =>
+  new Date(iso).toLocaleDateString('en-CA', { timeZone: CHURCH_TZ }); // YYYY-MM-DD
+
+async function pcoGet(token: string, url: string) {
+  let res: Response;
+  try {
+    res = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
+  } catch {
+    throw new PcoCheckInsError('Planning Center is unavailable.', 502);
+  }
+  if (!res.ok) throw new PcoCheckInsError(`PCO Check-Ins error: ${res.status}`, res.status);
+  return res.json();
+}
+
+/**
+ * PCO person IDs checked in to the Sunday service event on a calendar day
+ * (church local time), plus who performed each check-in (the parent or
+ * volunteer, from Check-Ins' checked_in_by). Checked-out people still
+ * count — they attended.
+ */
+export async function fetchSundayCheckedInPersonIds(
+  token: string,
+  date: string
+): Promise<{ eventName: string; personIds: Set<string>; checkerByPerson: Map<string, string> }> {
+  const events = await pcoGet(token, 'https://api.planningcenteronline.com/check-ins/v2/events?per_page=100');
+  const wanted = normalizeName(SUNDAY_CHECKIN_EVENT_NAME);
+  const event = (events.data || []).find(
+    (e: { attributes: { name: string } }) => normalizeName(e.attributes.name || '') === wanted
+  );
+  if (!event) throw new PcoCheckInsError(`Check-Ins event "${SUNDAY_CHECKIN_EVENT_NAME}" not found.`, 404);
+
+  const personIds = new Set<string>();
+  const checkerByPerson = new Map<string, string>();
+  // Newest first, so stop as soon as a page reaches days before the target.
+  let nextUrl: string | null =
+    `https://api.planningcenteronline.com/check-ins/v2/events/${event.id}/check_ins?per_page=100&order=-created_at&include=checked_in_by`;
+  let pages = 0;
+
+  while (nextUrl && pages < 20) {
+    const data = await pcoGet(token, nextUrl);
+    pages++;
+    let reachedOlder = false;
+
+    for (const ci of data.data || []) {
+      const day = localDate(ci.attributes.created_at);
+      if (day === date) {
+        const pid = ci.relationships?.person?.data?.id;
+        if (pid) {
+          personIds.add(pid);
+          const checker = ci.relationships?.checked_in_by?.data?.id;
+          if (checker && checker !== pid) checkerByPerson.set(pid, checker);
+        }
+      } else if (day < date) {
+        reachedOlder = true;
+      }
+    }
+    if (reachedOlder) break;
+    nextUrl = data.links?.next || null;
+  }
+
+  return { eventName: event.attributes.name, personIds, checkerByPerson };
+}
