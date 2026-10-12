@@ -552,8 +552,33 @@ export default function AttendancePage() {
   const heldDates = columns.filter(d => sessionSet.has(d));
 
   const presentOn = (memberId: string, d: string) => presentSet.has(`${memberId}|${d}`);
-  const countForDate = (d: string) =>
-    sessionSet.has(d) ? viewMembers.filter(m => presentOn(m.id, d)).length : null;
+
+  // Per-date adult/kid split for the column headers. Counts the full view
+  // scope, not the minors-filtered list, so the totals don't change with
+  // the Show Minors toggle. Kid = under 18 on that session's date; no
+  // birthday on file counts as adult.
+  const scopeMembers = allMembers.filter(m =>
+    viewType === 'house_church' ? m.house_church_id === viewHcId : true
+  );
+  const isKidOn = (m: Member, d: string) => {
+    if (!m.date_of_birth) return false;
+    const birth = new Date(m.date_of_birth.split('T')[0] + 'T00:00:00');
+    if (isNaN(birth.getTime())) return false;
+    const ref = new Date(d + 'T00:00:00');
+    let age = ref.getFullYear() - birth.getFullYear();
+    const mm = ref.getMonth() - birth.getMonth();
+    if (mm < 0 || (mm === 0 && ref.getDate() < birth.getDate())) age--;
+    return age >= 0 && age < 18;
+  };
+  const splitForDate = (d: string) => {
+    if (!sessionSet.has(d)) return null;
+    let adults = 0, kids = 0;
+    for (const m of scopeMembers) {
+      if (!presentOn(m.id, d)) continue;
+      if (isKidOn(m, d)) kids++; else adults++;
+    }
+    return { adults, kids };
+  };
 
   const rateParts = (memberId: string): Rate => ({
     attended: heldDates.filter(d => presentOn(memberId, d)).length,
@@ -962,12 +987,22 @@ export default function AttendancePage() {
                     <thead>
                       <tr>
                         <th className="att-name-col">{t('common.name')}</th>
-                        {columns.map(d => (
-                          <th key={d}>
-                            {dayMonth(d)}
-                            <span className="att-date-count">{countForDate(d) ?? ''}</span>
-                          </th>
-                        ))}
+                        {columns.map(d => {
+                          const split = splitForDate(d);
+                          return (
+                            <th key={d}>
+                              {dayMonth(d)}
+                              <span className="att-date-count">
+                                {split ? split.adults + split.kids : ''}
+                              </span>
+                              {split && (
+                                <span className="att-date-count" style={{ display: 'block', fontWeight: 400 }}>
+                                  {split.adults}{t('att.adultAbbr')} {split.kids}{t('att.kidAbbr')}
+                                </span>
+                              )}
+                            </th>
+                          );
+                        })}
                         <th>{t('att.rate')}</th>
                       </tr>
                     </thead>
