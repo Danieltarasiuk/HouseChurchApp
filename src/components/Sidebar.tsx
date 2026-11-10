@@ -11,6 +11,7 @@ import {
   BookOpen,
   Sprout,
   Calendar,
+  CalendarDays,
   HeartHandshake,
   Heart,
   Settings,
@@ -74,6 +75,13 @@ export function Sidebar() {
       icon: HeartHandshake,
       label: t('nav.pastoral'),
       testId: 'nav-pastoral',
+      roles: ['admin', 'house_church_pastor'],
+    },
+    {
+      href: '/calendar',
+      icon: CalendarDays,
+      label: t('nav.calendar'),
+      testId: 'nav-calendar',
       roles: ['admin', 'house_church_pastor'],
     },
     {
