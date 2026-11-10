@@ -202,7 +202,7 @@ export function EventModal({
   const heading = d.id ? t('cal.editEvent') : d.isCopy ? t('cal.newEventCopy') : t('cal.newEvent');
 
   return (
-    <div className="verse-overlay" onClick={onClose}>
+    <div className="verse-overlay cal-overlay" onClick={onClose}>
       <div className="verse-modal cal-modal" onClick={(e) => e.stopPropagation()} role="dialog" aria-label={heading}>
         <div className="verse-modal-header">
           <h3>{heading}</h3>
@@ -326,7 +326,7 @@ export function EventDetails({ event, onClose }: { event: CalendarEvent; onClose
   const cat = CALENDAR_CATEGORIES[event.category as CalendarCategory];
   const title = language === 'es' ? event.title_es || event.title_en : event.title_en;
   return (
-    <div className="verse-overlay" onClick={onClose}>
+    <div className="verse-overlay cal-overlay" onClick={onClose}>
       <div className="verse-modal cal-details" onClick={(e) => e.stopPropagation()} role="dialog" aria-label={title}>
         <div className="verse-modal-header">
           <h3 className={event.status === 'cancelled' ? 'cal-strike' : ''}>{title}</h3>

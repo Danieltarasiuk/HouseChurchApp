@@ -18,6 +18,10 @@ import { addDaysISO, toLocalISODate } from '@/lib/calendarDates';
 import { EventModal, EventDetails, type CalendarEvent, type EventDraft, emptyDraft, draftFromEvent } from './EventModal';
 
 type ViewKey = 'month' | 'monthList' | 'year';
+
+function escapeHtml(s: string): string {
+  return s.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]!);
+}
 const FC_VIEW: Record<ViewKey, string> = { month: 'dayGridMonth', monthList: 'listMonth', year: 'listYear' };
 
 export function CalendarNoAccess() {
@@ -106,55 +110,66 @@ export function LeadershipCalendar({ role }: { role: 'admin' | 'house_church_pas
     [rows, categories, showCancelled]
   );
 
-  const fcEvents: EventInput[] = useMemo(
-    () =>
-      visibleRows.map((r) => {
-        const cat = CALENDAR_CATEGORIES[r.category as CalendarCategory];
-        const title = language === 'es' ? r.title_es || r.title_en : r.title_en;
-        const timed = !!(r.start_time && r.end_time);
-        const classNames: string[] = [];
-        if (r.status === 'cancelled') classNames.push('cal-ev-cancelled');
-        if (r.sync_status === 'error') classNames.push('cal-ev-sync-error');
-        return {
-          id: r.id,
-          title,
-          // FullCalendar's all-day end is exclusive; ours is inclusive.
-          start: timed ? `${r.start_date}T${r.start_time}:00` : r.start_date,
-          end: timed ? `${r.end_date}T${r.end_time}:00` : addDaysISO(r.end_date, 1),
-          allDay: !timed,
-          backgroundColor: cat?.color,
-          borderColor: cat?.color,
-          textColor: '#fff',
-          classNames,
-          extendedProps: { row: r },
-        };
-      }),
-    [visibleRows, language]
-  );
+  const isList = view !== 'month';
+
+  const fcEvents: EventInput[] = useMemo(() => {
+    const rangeFmt = new Intl.DateTimeFormat(language === 'es' ? 'es' : 'en', { month: 'short', day: 'numeric' });
+    const partsDate = (iso: string) => {
+      const [y, m, d] = iso.split('-').map(Number);
+      return new Date(y, m - 1, d);
+    };
+    return visibleRows.map((r) => {
+      const cat = CALENDAR_CATEGORIES[r.category as CalendarCategory];
+      const title = language === 'es' ? r.title_es || r.title_en : r.title_en;
+      const timed = !!(r.start_time && r.end_time);
+      const classNames: string[] = [];
+      if (r.status === 'cancelled') classNames.push('cal-ev-cancelled');
+      if (r.sync_status === 'error') classNames.push('cal-ev-sync-error');
+
+      // FullCalendar's all-day end is exclusive; ours is inclusive.
+      let start = timed ? `${r.start_date}T${r.start_time}:00` : r.start_date;
+      let end = timed ? `${r.end_date}T${r.end_time}:00` : addDaysISO(r.end_date, 1);
+      let rangeLabel: string | null = null;
+
+      // List views would repeat a multi-day all-day event on every day it
+      // covers (the July break = 31 rows). Show it once, on its first visible
+      // day, with the date range in the time column instead.
+      if (isList && !timed && r.end_date > r.start_date) {
+        const first = range && r.start_date < range.from ? range.from : r.start_date;
+        start = first;
+        end = addDaysISO(first, 1);
+        rangeLabel = rangeFmt.formatRange(partsDate(r.start_date), partsDate(r.end_date));
+      }
+
+      return {
+        id: r.id,
+        title,
+        start,
+        end,
+        allDay: !timed,
+        backgroundColor: cat?.color,
+        borderColor: cat?.color,
+        textColor: '#fff',
+        classNames,
+        extendedProps: { row: r, rangeLabel },
+      };
+    });
+  }, [visibleRows, language, isList, range]);
 
   // Year view: first listed day of each month gets a month heading + chip target.
+  // In list views every event is listed only on its (first visible) start day.
   const firstDayOfMonth = useMemo(() => {
     const map = new Map<number, string>();
     if (view !== 'year') return map;
-    const yearStart = `${viewYear}-01-01`;
-    const yearEnd = `${viewYear}-12-31`;
-    for (const r of visibleRows) {
-      // A multi-day event is listed on each of its days, starting at the
-      // later of its start and Jan 1.
-      let d = r.start_date < yearStart ? yearStart : r.start_date;
-      const last = r.end_date > yearEnd ? yearEnd : r.end_date;
-      while (d <= last) {
-        const m = Number(d.slice(5, 7)) - 1;
-        const cur = map.get(m);
-        if (!cur || d < cur) map.set(m, d);
-        // Only the first day in each month matters; jump to next month.
-        const [y, mm] = d.split('-').map(Number);
-        const next = mm === 12 ? `${y + 1}-01-01` : `${y}-${String(mm + 1).padStart(2, '0')}-01`;
-        d = next;
-      }
+    for (const ev of fcEvents) {
+      const d = String(ev.start).slice(0, 10);
+      if (!d.startsWith(String(viewYear))) continue;
+      const m = Number(d.slice(5, 7)) - 1;
+      const cur = map.get(m);
+      if (!cur || d < cur) map.set(m, d);
     }
     return map;
-  }, [visibleRows, view, viewYear]);
+  }, [fcEvents, view, viewYear]);
 
   const monthNames = useMemo(() => {
     const fmt = new Intl.DateTimeFormat(language === 'es' ? 'es' : 'en', { month: 'long' });
@@ -167,21 +182,19 @@ export function LeadershipCalendar({ role }: { role: 'admin' | 'house_church_pas
 
   const renderDayHeader = useCallback(
     (arg: DayHeaderContentArg & { text?: string; sideText?: string }) => {
-      if (arg.view.type !== 'listYear') return undefined;
+      // dayGrid column headers: `true` = FullCalendar's default rendering.
+      if (!arg.view.type.startsWith('list')) return true;
       const iso = toLocalISODate(arg.date);
       const m = arg.date.getMonth();
-      const isFirst = firstDayOfMonth.get(m) === iso;
-      return (
-        <>
-          {isFirst && (
-            <div id={`cal-month-${m}`} className="cal-month-heading">
-              {monthNames[m].long} {arg.date.getFullYear()}
-            </div>
-          )}
-          <span className="fc-list-day-text">{arg.text}</span>
-          <span className="fc-list-day-side-text">{arg.sideText}</span>
-        </>
-      );
+      const isFirst = arg.view.type === 'listYear' && firstDayOfMonth.get(m) === iso;
+      // HTML strings, not JSX: JSX here is rendered through a React portal
+      // per cell and floods the console with flushSync errors.
+      const heading = isFirst
+        ? `<div id="cal-month-${m}" class="cal-month-heading">${escapeHtml(`${monthNames[m].long} ${arg.date.getFullYear()}`)}</div>`
+        : '';
+      return {
+        html: `${heading}<span class="fc-list-day-text">${escapeHtml(arg.text ?? '')}</span><span class="fc-list-day-side-text">${escapeHtml(arg.sideText ?? '')}</span>`,
+      };
     },
     [firstDayOfMonth, monthNames]
   );
@@ -338,7 +351,13 @@ export function LeadershipCalendar({ role }: { role: 'admin' | 'house_church_pas
           dayHeaderContent={renderDayHeader}
           editable={false}
           eventDisplay="block"
-          displayEventEnd
+          displayEventEnd={view !== 'month'}
+          eventContent={(arg) => {
+            const label = arg.event.extendedProps.rangeLabel as string | null;
+            // `true` = FullCalendar's default rendering (undefined renders nothing).
+            if (!label || !arg.view.type.startsWith('list')) return true;
+            return { html: `<a>${escapeHtml(arg.event.title)} <span class="cal-range">· ${escapeHtml(label)}</span></a>` };
+          }}
         />
       </div>
 
