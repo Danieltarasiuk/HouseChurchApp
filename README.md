@@ -56,6 +56,41 @@ Open [http://localhost:3000](http://localhost:3000) in your browser.
 - `npm start` - Start production server
 - `npm run lint` - Run ESLint
 - `npm run check:schema` - Verify `src/lib/schema.sql` still matches the live database
+- `npm run seed:calendar` - Seed the 2027 leadership calendar and link it to existing Google events (`-- --dry-run` to preview)
+
+## Leadership calendar (`/calendar`)
+
+Admins create, edit, duplicate, cancel/restore and delete church events. House church pastors get a
+read-only view (no internal notes, no sync state). Members get a 403 from the page and the API.
+
+The app is the master copy. Every change is pushed one way to the **CityChurch Miami** Google
+Calendar, and nothing is read back, so edits made directly in Google are overwritten the next time
+the app pushes that event. Internal notes are never sent to Google.
+
+- Dates and times are America/New_York local `DATE`/`TIME` values. `end_date` is inclusive; the
+  +1 day for Google's and FullCalendar's exclusive all-day ends happens at the edges
+  (`src/lib/googleCalendarSync.ts`, `src/components/calendar/LeadershipCalendar.tsx`).
+- Holiday, School and Reminder events, and any cancelled event, are pushed as "free"
+  (`transparency: transparent`) so they don't block anyone's time.
+- A Google failure never blocks a save: the row is marked `sync_status = 'error'`, shows a warning
+  dot, and can be retried from the event or with the **Sync** button (pushes every pending/errored row).
+- Categories, colors and Google colorIds live in `src/lib/calendarCategories.ts`.
+
+### Setup
+
+1. In Google Cloud Console, open the project (the one that holds the Google sign-in OAuth client works)
+   and enable the **Google Calendar API**. No billing or free trial is needed.
+2. Create a **service account** and a **JSON key** for it. Copy `client_email` and `private_key` into
+   `GOOGLE_SERVICE_ACCOUNT_EMAIL` and `GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY`, locally in `.env.local`
+   and in Vercel. Literal `\n` sequences in the key are converted to newlines.
+3. In Google Calendar, open the **CityChurch Miami** calendar → Settings → Share with specific people,
+   add the service account email, and choose **"Make changes to events."** Put the calendar's ID
+   (Settings → Integrate calendar) in `GOOGLE_CALENDAR_ID`.
+4. Apply `scripts/add-calendar-events.sql` to the database, then run `npm run check:schema`.
+5. `npm run seed:calendar -- --dry-run` to preview, then `npm run seed:calendar`. It refuses to run
+   if any 2027 rows already exist, links each row to the Google event with the same start date and
+   exact title, and pushes nothing.
+6. Open `/calendar` as an admin and press **Sync** to push anything still pending.
 
 ## Schema drift check
 
@@ -198,6 +233,8 @@ npm run build  # Build locally first to test
 - Set `NEXTAUTH_URL` to your production domain
 - Ensure `NEXTAUTH_SECRET` is set to a strong value
 - Update `DATABASE_URL` for production database
+- Set `GOOGLE_SERVICE_ACCOUNT_EMAIL`, `GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY` and `GOOGLE_CALENDAR_ID`
+  for the leadership calendar (see above)
 
 ## Contributing
 
