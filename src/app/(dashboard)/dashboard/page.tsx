@@ -1,7 +1,10 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { HandCoins } from 'lucide-react';
 import { useLang } from '@/context/LangContext';
+import { GiveLink } from '@/components/GiveLink';
+import { GIVING_URL } from '@/lib/giving';
 
 interface DashboardData {
   churchCount: number;
@@ -71,6 +74,21 @@ export default function DashboardPage() {
           <div className="stat-value">{loading ? '—' : data.prayerCount}</div>
         </div>
       </div>
+
+      {GIVING_URL && (
+        <div className="card give-card" style={{ marginBottom: 24 }}>
+          <div className="card-body give-card-body">
+            <div>
+              <h3 className="card-title">{t('give.title')}</h3>
+              <p className="give-card-text">{t('give.body')}</p>
+            </div>
+            <GiveLink className="btn btn-primary give-card-btn" testId="dashboard-give">
+              <HandCoins size={16} />
+              {t('give.button')}
+            </GiveLink>
+          </div>
+        </div>
+      )}
 
       <div className="card">
         <div className="card-header">

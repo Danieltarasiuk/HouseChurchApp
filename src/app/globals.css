@@ -1087,6 +1087,27 @@ tr:hover td {
   .cal-page-header .btn { padding: 6px 12px; }
 }
 
+/* Give card (dashboard) */
+.give-card-body {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+  padding: 20px 24px;
+}
+
+.give-card-text {
+  margin: 4px 0 0;
+  font-size: 14px;
+  color: var(--text-secondary);
+}
+
+.give-card-btn {
+  text-decoration: none;
+  flex-shrink: 0;
+}
+
 /* Year grid: 12 mini months with colored dots */
 .cal-year-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: 20px 16px; padding: 8px; }
 .cal-ym-title { font-size: 14px; font-weight: 700; color: var(--text-primary); margin: 0 0 6px 4px; }
