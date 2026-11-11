@@ -15,14 +15,24 @@ import {
   CalendarCategory,
 } from '@/lib/calendarCategories';
 import { addDaysISO, toLocalISODate } from '@/lib/calendarDates';
+import { YearGrid } from './YearGrid';
 import { EventModal, EventDetails, type CalendarEvent, type EventDraft, emptyDraft, draftFromEvent } from './EventModal';
 
-type ViewKey = 'month' | 'monthList' | 'year';
+/** `yearGrid` is our own dot overview; the others are FullCalendar views. */
+type ViewKey = 'month' | 'monthList' | 'yearGrid' | 'year';
+type FcViewKey = Exclude<ViewKey, 'yearGrid'>;
+const VIEW_ORDER: ViewKey[] = ['month', 'monthList', 'yearGrid', 'year'];
+const VIEW_LABEL: Record<ViewKey, string> = {
+  month: 'cal.viewMonth',
+  monthList: 'cal.viewMonthList',
+  yearGrid: 'cal.viewYearGrid',
+  year: 'cal.viewYear',
+};
 
 function escapeHtml(s: string): string {
   return s.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]!);
 }
-const FC_VIEW: Record<ViewKey, string> = { month: 'dayGridMonth', monthList: 'listMonth', year: 'listYear' };
+const FC_VIEW: Record<FcViewKey, string> ={ month: 'dayGridMonth', monthList: 'listMonth', year: 'listYear' };
 
 export function CalendarNoAccess() {
   const { t } = useLang();
@@ -43,6 +53,9 @@ export function LeadershipCalendar({ role }: { role: 'admin' | 'house_church_pas
   const [range, setRange] = useState<{ from: string; to: string } | null>(null);
   const [viewTitle, setViewTitle] = useState('');
   const [viewYear, setViewYear] = useState<number>(new Date().getFullYear());
+  // Where FullCalendar should open when it (re)mounts after the year grid.
+  const [anchorDate, setAnchorDate] = useState<Date>(() => new Date());
+  const isGrid = view === 'yearGrid';
   const [rows, setRows] = useState<CalendarEvent[]>([]);
   const [loading, setLoading] = useState(false);
   const [categories, setCategories] = useState<Set<CalendarCategory>>(new Set(CALENDAR_CATEGORY_KEYS));
@@ -64,8 +77,24 @@ export function LeadershipCalendar({ role }: { role: 'admin' | 'house_church_pas
   }, []);
 
   useEffect(() => {
+    if (view === 'yearGrid') return;
     calRef.current?.getApi().changeView(FC_VIEW[view]);
   }, [view]);
+
+  // Year grid: FullCalendar is unmounted, so range and title come from the year.
+  useEffect(() => {
+    if (!isGrid) return;
+    const from = `${viewYear}-01-01`;
+    const to = `${viewYear}-12-31`;
+    setRange((cur) => (cur && cur.from === from && cur.to === to ? cur : { from, to }));
+    setViewTitle(String(viewYear));
+  }, [isGrid, viewYear]);
+
+  const gotoGridYear = (year: number) => {
+    setViewYear(year);
+    const now = new Date();
+    setAnchorDate(year === now.getFullYear() ? now : new Date(year, 0, 1));
+  };
 
   const showToast = useCallback((text: string, kind: 'ok' | 'warn' = 'ok') => {
     setToast({ text, kind });
@@ -98,6 +127,7 @@ export function LeadershipCalendar({ role }: { role: 'admin' | 'house_church_pas
     setRange((cur) => (cur && cur.from === from && cur.to === to ? cur : { from, to }));
     setViewTitle(info.view.title);
     setViewYear(info.view.currentStart.getFullYear());
+    setAnchorDate(info.view.currentStart);
   }, []);
 
   const visibleRows = useMemo(
@@ -263,20 +293,31 @@ export function LeadershipCalendar({ role }: { role: 'admin' | 'house_church_pas
 
       <div className="cal-toolbar">
         <div className="cal-nav">
-          <button className="btn btn-ghost cal-icon-btn" onClick={() => api()?.prev()} aria-label={t('cal.prev')}>
+          <button
+            className="btn btn-ghost cal-icon-btn"
+            onClick={() => (isGrid ? gotoGridYear(viewYear - 1) : api()?.prev())}
+            aria-label={t('cal.prev')}
+          >
             <ChevronLeft size={18} />
           </button>
-          <button className="btn btn-secondary cal-today" onClick={() => api()?.today()}>
+          <button
+            className="btn btn-secondary cal-today"
+            onClick={() => (isGrid ? gotoGridYear(new Date().getFullYear()) : api()?.today())}
+          >
             {t('cal.today')}
           </button>
-          <button className="btn btn-ghost cal-icon-btn" onClick={() => api()?.next()} aria-label={t('cal.next')}>
+          <button
+            className="btn btn-ghost cal-icon-btn"
+            onClick={() => (isGrid ? gotoGridYear(viewYear + 1) : api()?.next())}
+            aria-label={t('cal.next')}
+          >
             <ChevronRight size={18} />
           </button>
           <h3 className="cal-title">{viewTitle}</h3>
           {loading && <span className="cal-loading">{t('dashboard.loading')}</span>}
         </div>
         <div className="cal-segmented" role="tablist">
-          {(['month', 'monthList', 'year'] as ViewKey[]).map((v) => (
+          {VIEW_ORDER.map((v) => (
             <button
               key={v}
               role="tab"
@@ -284,7 +325,7 @@ export function LeadershipCalendar({ role }: { role: 'admin' | 'house_church_pas
               className={view === v ? 'active' : ''}
               onClick={() => setView(v)}
             >
-              {t(v === 'month' ? 'cal.viewMonth' : v === 'monthList' ? 'cal.viewMonthList' : 'cal.viewYear')}
+              {t(VIEW_LABEL[v])}
             </button>
           ))}
         </div>
@@ -332,10 +373,20 @@ export function LeadershipCalendar({ role }: { role: 'admin' | 'house_church_pas
       )}
 
       <div className={`card cal-card${isAdmin ? ' cal-admin' : ''}`}>
+        {isGrid ? (
+          <YearGrid
+            year={viewYear}
+            events={visibleRows}
+            isAdmin={isAdmin}
+            onOpenEvent={(row) => (isAdmin ? setDraft(draftFromEvent(row)) : setDetails(row))}
+            onNewEvent={(date) => setDraft(emptyDraft(date))}
+          />
+        ) : (
         <FullCalendar
           ref={calRef}
           plugins={[dayGridPlugin, listPlugin, interactionPlugin]}
           initialView={FC_VIEW[view]}
+          initialDate={anchorDate}
           views={{
             listYear: { type: 'list', duration: { years: 1 }, dateAlignment: 'year' },
           }}
@@ -359,6 +410,7 @@ export function LeadershipCalendar({ role }: { role: 'admin' | 'house_church_pas
             return { html: `<a>${escapeHtml(arg.event.title)} <span class="cal-range">· ${escapeHtml(label)}</span></a>` };
           }}
         />
+        )}
       </div>
 
       {draft && (
