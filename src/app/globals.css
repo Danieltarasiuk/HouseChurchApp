@@ -1086,3 +1086,24 @@ tr:hover td {
   .cal-chip, .cal-chip-link { flex-shrink: 0; white-space: nowrap; }
   .cal-page-header .btn { padding: 6px 12px; }
 }
+
+/* Give card (dashboard) */
+.give-card-body {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+  padding: 20px 24px;
+}
+
+.give-card-text {
+  margin: 4px 0 0;
+  font-size: 14px;
+  color: var(--text-secondary);
+}
+
+.give-card-btn {
+  text-decoration: none;
+  flex-shrink: 0;
+}
