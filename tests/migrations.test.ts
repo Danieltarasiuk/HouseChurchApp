@@ -52,7 +52,7 @@ beforeAll(async () => {
   // A pending sign-up, so status survives the trip too.
   const [{ id }] = await db.sql(`INSERT INTO users (name, email) VALUES ('Waiting', 'w@example.test') RETURNING id`);
   await db.sql(`INSERT INTO church_memberships (user_id, church_id, role, status) VALUES ($1, $2, 'member', 'pending')`, [id, C]);
-}, 30_000);
+}); // hookTimeout in vitest.config.ts
 
 describe('migrations 001–003, down and back up', () => {
   it('each step restores the previous one, and the chain ends where it started', async () => {
