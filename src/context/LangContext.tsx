@@ -2,7 +2,7 @@
 
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
 
-import { translations, LANG_COOKIE, isLanguage, type Language } from '@/lib/translations';
+import { translate, LANG_COOKIE, isLanguage, type Language } from '@/lib/translations';
 
 interface LangContextType {
   language: Language;
@@ -45,7 +45,7 @@ export function LangProvider({ children, initialLanguage = 'en' }: { children: R
   }, [initialLanguage]);
 
   const t = useCallback((key: string): string => {
-    return translations[language][key] || translations['en'][key] || key;
+    return translate(language, key);
   }, [language]);
 
   return (

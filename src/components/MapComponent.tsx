@@ -5,16 +5,16 @@ import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 
 // Re-export from map-utils so existing dynamic imports still work
-export { getHCColor, HC_PALETTE } from '@/lib/map-utils';
+export { getGroupColor, GROUP_PALETTE } from '@/lib/map-utils';
 export type { MapMarker } from '@/lib/map-utils';
 
 import type { MapMarker } from '@/lib/map-utils';
 
 const HOUSE_SVG = `<svg viewBox="0 0 24 24" width="20" height="20" fill="white" stroke="white" stroke-width="0.5"><path d="M3 12l9-9 9 9M5 11v8a1 1 0 001 1h4v-5h4v5h4a1 1 0 001-1v-8"/></svg>`;
 
-function createHCIcon(color: string) {
+function createGroupIcon(color: string) {
   return L.divIcon({
-    className: 'map-pin-hc',
+    className: 'map-pin-group',
     html: `<div style="
       width: 36px; height: 36px; border-radius: 50%;
       background: ${color}; border: 3px solid white;
@@ -67,9 +67,9 @@ export default function MapComponent({ markers, height, className, emptyMessage 
 
     const bounds = L.latLngBounds([]);
 
-    // Add HC markers first (so they appear on top)
-    for (const m of validMarkers.filter(x => x.type === 'house_church')) {
-      const marker = L.marker([m.lat, m.lng], { icon: createHCIcon(m.color), zIndexOffset: 1000 }).addTo(map);
+    // Add group markers first (so they appear on top)
+    for (const m of validMarkers.filter(x => x.type === 'group')) {
+      const marker = L.marker([m.lat, m.lng], { icon: createGroupIcon(m.color), zIndexOffset: 1000 }).addTo(map);
       marker.bindPopup(m.tooltipHtml, { maxWidth: 200 });
       bounds.extend([m.lat, m.lng]);
     }

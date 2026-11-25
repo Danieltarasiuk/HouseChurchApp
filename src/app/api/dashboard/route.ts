@@ -10,13 +10,13 @@ export async function GET() {
   if (error) return error;
 
   try {
-    const [churches, members, prayers] = await Promise.all([
-      sql('SELECT COUNT(*) as count FROM house_churches WHERE is_active = true'),
+    const [groups, members, prayers] = await Promise.all([
+      sql('SELECT COUNT(*) as count FROM groups WHERE is_active = true'),
       sql('SELECT COUNT(*) as count FROM members WHERE is_active = true'),
       // Filtered in code with the same rule as /api/prayer, so a private or
-      // house-church request never reaches someone who can't open it.
+      // group request never reaches someone who can't open it.
       sql(
-        `SELECT pr.id, pr.title, pr.status, pr.created_at, pr.user_id, pr.visibility, pr.house_church_id,
+        `SELECT pr.id, pr.title, pr.status, pr.created_at, pr.user_id, pr.visibility, pr.group_id,
                 u.name AS requester_name
          FROM prayer_requests pr LEFT JOIN users u ON pr.user_id = u.id
          ORDER BY pr.created_at DESC`
@@ -24,11 +24,11 @@ export async function GET() {
     ]);
 
     const visible = prayers.filter((p) =>
-      canSeePrayer(viewer, { user_id: p.user_id, visibility: p.visibility, house_church_id: p.house_church_id })
+      canSeePrayer(viewer, { user_id: p.user_id, visibility: p.visibility, group_id: p.group_id })
     );
 
     return NextResponse.json({
-      churchCount: Number(churches[0]?.count ?? 0),
+      groupCount: Number(groups[0]?.count ?? 0),
       memberCount: Number(members[0]?.count ?? 0),
       prayerCount: visible.filter((p) => p.status === 'active').length,
       recentPrayers: visible.slice(0, RECENT_PRAYERS).map((p) => ({

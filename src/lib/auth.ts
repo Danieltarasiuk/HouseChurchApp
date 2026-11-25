@@ -17,6 +17,9 @@ import { googleSignIn } from '@/lib/memberLink';
  */
 const ROLE_TTL_MS = 5 * 60 * 1000;
 
+/** users.role values (kept in step with Role in authz.ts, which imports this file). */
+const KNOWN_ROLES = ['admin', 'group_leader', 'member'];
+
 export const { handlers, auth, signIn, signOut } = NextAuth({
   ...authConfig,
   providers: [
@@ -108,7 +111,10 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
       if (!token.id) return token;
 
       const checkedAt = typeof token.roleCheckedAt === 'number' ? token.roleCheckedAt : 0;
-      const isStale = Date.now() - checkedAt > ROLE_TTL_MS;
+      // A role this code no longer knows (a token issued before a role was
+      // renamed, e.g. migration 001) is re-read at once instead of after the TTL.
+      const isKnownRole = typeof token.role === 'string' && KNOWN_ROLES.includes(token.role);
+      const isStale = !isKnownRole || Date.now() - checkedAt > ROLE_TTL_MS;
 
       // `update` lets a client force a refresh via useSession().update().
       if (!isStale && trigger !== 'update') return token;

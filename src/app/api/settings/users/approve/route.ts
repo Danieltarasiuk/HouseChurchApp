@@ -55,7 +55,7 @@ export async function POST(request: Request) {
     const { first, last } = splitName(users[0].name, String(users[0].email).toLowerCase());
     rows = await sql(
       `WITH created AS (
-         INSERT INTO members (user_id, first_name, last_name, email, house_church_id, is_active)
+         INSERT INTO members (user_id, first_name, last_name, email, group_id, is_active)
          SELECT id, $2, $3, LOWER(email), NULL, true FROM users WHERE id = $1::uuid AND status = 'pending'
          RETURNING id
        ), activated AS (

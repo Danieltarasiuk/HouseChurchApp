@@ -44,7 +44,7 @@ export function CalendarNoAccess() {
   );
 }
 
-export function LeadershipCalendar({ role }: { role: 'admin' | 'house_church_pastor' }) {
+export function LeadershipCalendar({ role }: { role: 'admin' | 'group_leader' }) {
   const { language, t } = useLang();
   const isAdmin = role === 'admin';
   const calRef = useRef<FullCalendar>(null);

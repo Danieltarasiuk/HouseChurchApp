@@ -80,7 +80,7 @@ describe('a pending account', () => {
     ['GET /api/prayer', async () => (await import('@/app/api/prayer/route')).GET()],
     ['POST /api/prayer', async () => (await import('@/app/api/prayer/route')).POST(new Request('http://localhost/api/prayer', { method: 'POST', body: JSON.stringify({ title: 'x' }) }))],
     ['PATCH /api/prayer', async () => (await import('@/app/api/prayer/route')).PATCH(new Request('http://localhost/api/prayer', { method: 'PATCH', body: JSON.stringify({ id: 'x', status: 'answered' }) }))],
-    ['GET /api/house-churches', async () => (await import('@/app/api/house-churches/route')).GET()],
+    ['GET /api/groups', async () => (await import('@/app/api/groups/route')).GET()],
     ['GET /api/directory-visibility', async () => (await import('@/app/api/directory-visibility/route')).GET(req('/api/directory-visibility?scope=member_self'))],
     ['GET /api/discipleship/answers', async () => (await import('@/app/api/discipleship/answers/route')).GET(req('/api/discipleship/answers?week=1&day=1'))],
     ['GET /api/me', async () => (await import('@/app/api/me/route')).GET()],
@@ -183,8 +183,8 @@ describe('approve and link', () => {
     const res = await approve({ userId: pendingId, create: true });
     expect(res.status).toBe(200);
     const { memberId } = await res.json();
-    expect(await sql('SELECT first_name, last_name, user_id, house_church_id FROM members WHERE id = $1', [memberId]))
-      .toEqual([{ first_name: 'Shared', last_name: 'Person', user_id: pendingId, house_church_id: null }]);
+    expect(await sql('SELECT first_name, last_name, user_id, group_id FROM members WHERE id = $1', [memberId]))
+      .toEqual([{ first_name: 'Shared', last_name: 'Person', user_id: pendingId, group_id: null }]);
     expect((await sql('SELECT user_id FROM members WHERE id = $1', [M.A2]))[0].user_id).toBeNull();
   });
 
@@ -238,7 +238,7 @@ describe('Google sign-in', () => {
 });
 
 // ---------------------------------------------------------------------------
-// 3. Pastoral meetings and flags: pastors only for their own house church
+// 3. Pastoral meetings and flags: pastors only for their own group
 // ---------------------------------------------------------------------------
 
 describe('pastoral meetings and flags', () => {
@@ -271,8 +271,8 @@ describe('pastoral meetings and flags', () => {
     expect(await sql('SELECT * FROM member_flags')).toEqual([]);
   });
 
-  it("a pastor's own meeting list is limited to their own house church", async () => {
-    // pastorA logged a meeting with B1 back when B1 was in HC A.
+  it("a pastor's own meeting list is limited to their own group", async () => {
+    // pastorA logged a meeting with B1 back when B1 was in group A.
     await sql(`INSERT INTO pastoral_meetings (pastor_id, member_id, topic_key, meeting_date) VALUES ($1, $2, 'general', '2026-01-01'), ($1, $3, 'general', '2026-01-02')`, [U.pastorA, M.B1, M.A1]);
     as('pastorA');
     const { meetings } = await (await meetingsGet()).json();

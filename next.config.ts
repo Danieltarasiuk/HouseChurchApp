@@ -9,6 +9,15 @@ const nextConfig: NextConfig = {
       },
     ],
   },
+  // Old paths from before house churches were renamed to groups (PR 1.0).
+  // Temporary (307) rather than permanent, so a rollback is not undone by
+  // browsers that cached the redirect.
+  async redirects() {
+    return [
+      { source: '/house-churches', destination: '/groups', permanent: false },
+      { source: '/house-churches/:id', destination: '/groups/:id', permanent: false },
+    ];
+  },
   async headers() {
     return [
       {

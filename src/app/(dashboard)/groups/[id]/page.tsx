@@ -9,13 +9,13 @@ import { genderLabel, meetingDayLabel } from '@/lib/formatDate';
 import { PrivacyControls } from '@/components/PrivacyControls';
 import { birthdayMD, birthdayKeyMD, formatBirthdayMD, isMinorRow } from '@/lib/memberDisplay';
 import { ArrowLeft, Pencil } from 'lucide-react';
-import HouseChurchModal from '@/components/HouseChurchModal';
-import { getHCColor, escapeHtml } from '@/lib/map-utils';
+import GroupModal from '@/components/GroupModal';
+import { getGroupColor, escapeHtml } from '@/lib/map-utils';
 import type { MapMarker } from '@/lib/map-utils';
 
 const MapComponent = dynamic(() => import('@/components/MapComponent'), { ssr: false });
 
-interface HouseChurch {
+interface Group {
   id: string;
   name: string;
   description: string | null;
@@ -57,7 +57,7 @@ interface Member {
   address_zip?: string | null;
   latitude?: number | null;
   longitude?: number | null;
-  house_church_id: string | null;
+  group_id: string | null;
 }
 
 interface Campus {
@@ -75,7 +75,7 @@ const roleBadgeClass = (role: string) => {
   switch (role) {
     case 'admin':
       return 'badge badge-pastor';
-    case 'house_church_pastor':
+    case 'group_leader':
       return 'badge badge-leader';
     default:
       return 'badge badge-member';
@@ -122,19 +122,19 @@ function compareSorted(a: string | number | null, b: string | number | null, dir
   return dir === 'asc' ? diff : -diff;
 }
 
-export default function HouseChurchDetailPage() {
+export default function GroupDetailPage() {
   const { t, language } = useLang();
   const router = useRouter();
   const params = useParams();
-  const hcId = params.id as string;
+  const groupId = params.id as string;
   const { data: session } = useSession();
   const userRole = (session?.user as { role?: string })?.role;
   const isAdmin = userRole === 'admin';
 
-  const [church, setChurch] = useState<HouseChurch | null>(null);
+  const [group, setGroup] = useState<Group | null>(null);
   const [allMembers, setAllMembers] = useState<Member[]>([]);
   const [campuses, setCampuses] = useState<Campus[]>([]);
-  const [hcMembers, setHcMembers] = useState<Member[]>([]);
+  const [groupMembers, setGroupMembers] = useState<Member[]>([]);
   const [loading, setLoading] = useState(true);
   const [showEditModal, setShowEditModal] = useState(false);
   const [sortCol, setSortCol] = useState<SortColumn | null>(null);
@@ -143,47 +143,47 @@ export default function HouseChurchDetailPage() {
 
   const loadData = useCallback(() => {
     Promise.all([
-      fetch('/api/house-churches').then((r) => r.json()),
+      fetch('/api/groups').then((r) => r.json()),
       fetch('/api/members').then((r) => r.json()),
     ])
-      .then(([hcData, memData]) => {
-        const found = (hcData.churches || []).find((c: HouseChurch) => String(c.id) === hcId);
-        setChurch(found || null);
-        setCampuses(hcData.campuses || []);
+      .then(([groupData, memData]) => {
+        const found = (groupData.groups || []).find((c: Group) => String(c.id) === groupId);
+        setGroup(found || null);
+        setCampuses(groupData.campuses || []);
         const members: Member[] = memData.members || [];
         setAllMembers(members);
-        setHcMembers(members.filter((m) => String(m.house_church_id) === hcId));
+        setGroupMembers(members.filter((m) => String(m.group_id) === groupId));
       })
       .catch(() => {})
       .finally(() => setLoading(false));
-  }, [hcId]);
+  }, [groupId]);
 
   useEffect(() => { loadData(); }, [loadData]);
 
-  const formatAddress = (hc: HouseChurch) => {
+  const formatAddress = (hc: Group) => {
     const stateZip = hc.address_state && hc.address_zip ? `${hc.address_state} ${hc.address_zip}` : hc.address_state || hc.address_zip;
     const parts = [hc.address_street, hc.address_city, stateZip].filter(Boolean);
     return parts.join(', ') || hc.location || null;
   };
 
   const mapMarkers: MapMarker[] = useMemo(() => {
-    if (!church) return [];
+    if (!group) return [];
     const markers: MapMarker[] = [];
-    const allHCIds = [church.id];
-    const color = getHCColor(church.id, allHCIds);
+    const allGroupIds = [group.id];
+    const color = getGroupColor(group.id, allGroupIds);
 
-    if (church.latitude && church.longitude) {
+    if (group.latitude && group.longitude) {
       markers.push({
-        id: `hc-${church.id}`,
-        lat: church.latitude,
-        lng: church.longitude,
-        type: 'house_church',
+        id: `group-${group.id}`,
+        lat: group.latitude,
+        lng: group.longitude,
+        type: 'group',
         color,
-        tooltipHtml: `<strong>${escapeHtml(church.name)}</strong>`,
+        tooltipHtml: `<strong>${escapeHtml(group.name)}</strong>`,
       });
     }
 
-    for (const m of hcMembers) {
+    for (const m of groupMembers) {
       if (m.latitude && m.longitude) {
         const addr = formatMemberAddress(m);
         markers.push({
@@ -198,7 +198,7 @@ export default function HouseChurchDetailPage() {
     }
 
     return markers;
-  }, [church, hcMembers]);
+  }, [group, groupMembers]);
 
   const cycleSort = (col: SortColumn) => {
     if (sortCol !== col) { setSortCol(col); setSortDir('asc'); }
@@ -212,9 +212,9 @@ export default function HouseChurchDetailPage() {
   };
 
   const filteredMembers = useMemo(() => {
-    if (showMinors) return hcMembers;
-    return hcMembers.filter(m => !isMinorRow(m, calcAge));
-  }, [hcMembers, showMinors]);
+    if (showMinors) return groupMembers;
+    return groupMembers.filter(m => !isMinorRow(m, calcAge));
+  }, [groupMembers, showMinors]);
 
   const sortedMembers = useMemo(() => {
     if (!sortCol || !sortDir) return filteredMembers;
@@ -259,7 +259,7 @@ export default function HouseChurchDetailPage() {
     return (
       <div>
         <div className="page-header">
-          <h2>{t('hc.title')}</h2>
+          <h2>{t('group.title')}</h2>
         </div>
         <div style={{ padding: '40px', textAlign: 'center', color: 'var(--text-tertiary)' }}>
           {t('dashboard.loading')}
@@ -268,12 +268,12 @@ export default function HouseChurchDetailPage() {
     );
   }
 
-  if (!church) {
+  if (!group) {
     return (
       <div>
         <div className="page-header">
-          <button className="btn btn-ghost" onClick={() => router.push('/house-churches')}>
-            <ArrowLeft size={16} /> {t('hc.back')}
+          <button className="btn btn-ghost" onClick={() => router.push('/groups')}>
+            <ArrowLeft size={16} /> {t('group.back')}
           </button>
         </div>
         <div className="card" style={{ padding: '40px', textAlign: 'center' }}>
@@ -283,13 +283,13 @@ export default function HouseChurchDetailPage() {
     );
   }
 
-  const addr = formatAddress(church);
+  const addr = formatAddress(group);
 
   return (
-    <div className="hc-detail-page">
+    <div className="group-detail-page">
       <div className="page-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <button className="btn btn-ghost" onClick={() => router.push('/house-churches')}>
-          <ArrowLeft size={16} /> {t('hc.back')}
+        <button className="btn btn-ghost" onClick={() => router.push('/groups')}>
+          <ArrowLeft size={16} /> {t('group.back')}
         </button>
         {isAdmin && (
           <button className="btn btn-secondary" onClick={() => setShowEditModal(true)}>
@@ -298,38 +298,38 @@ export default function HouseChurchDetailPage() {
         )}
       </div>
 
-      {/* HC Info Card */}
-      <div className="card hc-detail-card-wrap">
+      {/* Group info card */}
+      <div className="card group-detail-card-wrap">
         <div className="card-header">
-          <h2 className="card-title">{church.name}</h2>
-          {church.campus_name && (
-            <span className="badge badge-member">{church.campus_name}</span>
+          <h2 className="card-title">{group.name}</h2>
+          {group.campus_name && (
+            <span className="badge badge-member">{group.campus_name}</span>
           )}
         </div>
 
-        {church.description && <p style={{ padding: '0 24px', marginTop: '12px' }}>{church.description}</p>}
+        {group.description && <p style={{ padding: '0 24px', marginTop: '12px' }}>{group.description}</p>}
 
         <div style={{ padding: '16px 24px', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
-          {church.pastor_name && (
-            <div><strong>{t('hc.pastor')}:</strong> {church.pastor_name}</div>
+          {group.pastor_name && (
+            <div><strong>{t('group.pastor')}:</strong> {group.pastor_name}</div>
           )}
-          {church.host_name && (
-            <div><strong>{t('hc.host')}:</strong> {church.host_name}</div>
+          {group.host_name && (
+            <div><strong>{t('group.host')}:</strong> {group.host_name}</div>
           )}
-          {church.trainee_name && (
-            <div><strong>{t('hc.trainee')}:</strong> {church.trainee_name}</div>
+          {group.trainee_name && (
+            <div><strong>{t('group.trainee')}:</strong> {group.trainee_name}</div>
           )}
-          {church.meeting_day && (
-            <div><strong>{t('hc.meetingTime')}:</strong> {meetingDayLabel(t, church.meeting_day)}{church.meeting_time ? ` @ ${church.meeting_time}` : ''}</div>
+          {group.meeting_day && (
+            <div><strong>{t('group.meetingTime')}:</strong> {meetingDayLabel(t, group.meeting_day)}{group.meeting_time ? ` @ ${group.meeting_time}` : ''}</div>
           )}
           {addr && (
-            <div style={{ gridColumn: '1 / -1' }}><strong>{t('hc.address')}:</strong> {addr}</div>
+            <div style={{ gridColumn: '1 / -1' }}><strong>{t('group.address')}:</strong> {addr}</div>
           )}
         </div>
       </div>
 
       {/* Map */}
-      <div className="hc-detail-map-wrap" style={{ marginTop: '20px', overflow: 'hidden' }}>
+      <div className="group-detail-map-wrap" style={{ marginTop: '20px', overflow: 'hidden' }}>
         <MapComponent
           markers={mapMarkers}
           height="320px"
@@ -338,10 +338,10 @@ export default function HouseChurchDetailPage() {
       </div>
 
       {/* Members Table */}
-      <div className="card hc-detail-table-wrap" style={{ marginTop: '20px' }}>
+      <div className="card group-detail-table-wrap" style={{ marginTop: '20px' }}>
         <div className="card-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <h3 className="card-title">
-            {t('hc.members')} ({filteredMembers.length})
+            {t('group.members')} ({filteredMembers.length})
           </h3>
           <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '13px', cursor: 'pointer', whiteSpace: 'nowrap' }}>
             <input type="checkbox" checked={showMinors} onChange={() => setShowMinors(!showMinors)} />
@@ -376,7 +376,7 @@ export default function HouseChurchDetailPage() {
               {sortedMembers.length === 0 ? (
                 <tr>
                   <td colSpan={7} style={{ textAlign: 'center', color: 'var(--text-tertiary)', padding: '24px' }}>
-                    {t('hc.noMembers')}
+                    {t('group.noMembers')}
                   </td>
                 </tr>
               ) : (
@@ -416,20 +416,20 @@ export default function HouseChurchDetailPage() {
         </div>
       </div>
 
-      {/* Directory privacy for this house church (admins and its pastor only) */}
+      {/* Directory privacy for this group (admins and its pastor only) */}
       <div className="card card-padded" style={{ marginTop: '20px' }}>
         <PrivacyControls
-          scope="house_church"
-          id={hcId}
-          title={t('privacy.hcTitle')}
-          description={t('privacy.hcDesc')}
+          scope="group"
+          id={groupId}
+          title={t('privacy.groupTitle')}
+          description={t('privacy.groupDesc')}
         />
       </div>
 
       {/* Edit Modal */}
       {showEditModal && (
-        <HouseChurchModal
-          houseChurch={church}
+        <GroupModal
+          group={group}
           members={allMembers}
           campuses={campuses}
           onClose={() => setShowEditModal(false)}

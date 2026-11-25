@@ -11,7 +11,7 @@ interface PrayerRequest {
   title: string;
   description: string;
   status: 'active' | 'answered';
-  visibility: 'public' | 'house_church' | 'private';
+  visibility: 'public' | 'group' | 'private';
   created_at: string;
   user_id: string;
   requester_name: string;
@@ -29,7 +29,7 @@ export default function PrayerPage() {
   const { t, language } = useLang();
   const { data: session } = useSession();
   const userRole = (session?.user as { role?: string })?.role;
-  const isPastor = userRole === 'admin' || userRole === 'house_church_pastor';
+  const isPastor = userRole === 'admin' || userRole === 'group_leader';
 
   const [tab, setTab] = useState<'active' | 'answered'>('active');
   const [prayers, setPrayers] = useState<PrayerRequest[]>([]);
@@ -175,8 +175,8 @@ export default function PrayerPage() {
     }
   }
 
-  const visIcon = (v: string) => v === 'public' ? '\uD83C\uDF10' : v === 'house_church' ? '\uD83C\uDFE0' : '\uD83D\uDD12';
-  const visLabel = (v: string) => v === 'public' ? t('pray.public') : v === 'house_church' ? t('pray.houseChurch') : t('pray.privateLabel');
+  const visIcon = (v: string) => v === 'public' ? '\uD83C\uDF10' : v === 'group' ? '\uD83C\uDFE0' : '\uD83D\uDD12';
+  const visLabel = (v: string) => v === 'public' ? t('pray.public') : v === 'group' ? t('pray.group') : t('pray.privateLabel');
   const statusBadgeClass = (s: string) => s === 'answered' ? 'badge-answered' : 'badge-active';
   const statusLabel = (s: string) => s === 'answered' ? t('pray.statusAnswered') : t('pray.statusActive');
 
@@ -334,7 +334,7 @@ export default function PrayerPage() {
               <label>{t('pray.visibility')}</label>
               <select className="form-select" value={formVisibility} onChange={(e) => setFormVisibility(e.target.value)}>
                 <option value="public">{visIcon('public')} {t('pray.public')}</option>
-                <option value="house_church">{visIcon('house_church')} {t('pray.houseChurch')}</option>
+                <option value="group">{visIcon('group')} {t('pray.group')}</option>
                 <option value="private">{visIcon('private')} {t('pray.privateLabel')}</option>
               </select>
             </div>

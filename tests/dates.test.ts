@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeAll, beforeEach, afterEach, vi } from 'vitest';
 import { NextRequest } from 'next/server';
 import { current, setupTestDb, mockedSql, mockedWithTransaction } from './helpers/db';
-import { seedChurch, U, HC } from './helpers/fixtures';
+import { seedChurch, U, GROUP } from './helpers/fixtures';
 
 vi.mock('@/lib/db', () => ({
   sql: (text: string, params?: unknown[]) => mockedSql(text, params),
@@ -56,7 +56,7 @@ describe('attendance windows use the church date', () => {
     // Sessions on 30 Oct and 31 Oct: inside a 1-month window from Sunday
     // 30 Nov (church date), outside one from 1 Dec (the UTC date).
     for (const d of ['2026-10-30', '2026-10-31']) {
-      await sql(`INSERT INTO attendance_sessions (date, attendance_type, house_church_id) VALUES ($1, 'house_church', $2)`, [d, HC.A]);
+      await sql(`INSERT INTO attendance_sessions (date, attendance_type, group_id) VALUES ($1, 'group', $2)`, [d, GROUP.A]);
     }
     vi.useFakeTimers({ toFake: ['Date'] });
     vi.setSystemTime(SUNDAY_EVENING_MIAMI);
@@ -64,13 +64,13 @@ describe('attendance windows use the church date', () => {
 
   it('history', async () => {
     const { GET } = await import('@/app/api/attendance/history/route');
-    const res = await GET(new NextRequest(`http://localhost/api/attendance/history?attendance_type=house_church&months=1&house_church_id=${HC.A}`));
+    const res = await GET(new NextRequest(`http://localhost/api/attendance/history?attendance_type=group&months=1&group_id=${GROUP.A}`));
     expect((await res.json()).sessions).toEqual(['2026-10-30', '2026-10-31']);
   });
 
   it('sessions', async () => {
     const { GET } = await import('@/app/api/attendance/sessions/route');
-    const res = await GET(new NextRequest(`http://localhost/api/attendance/sessions?attendance_type=house_church&months=1&house_church_id=${HC.A}`));
+    const res = await GET(new NextRequest(`http://localhost/api/attendance/sessions?attendance_type=group&months=1&group_id=${GROUP.A}`));
     expect((await res.json()).sessions.map((s: { date: string }) => s.date)).toEqual(['2026-10-31', '2026-10-30']);
   });
 });

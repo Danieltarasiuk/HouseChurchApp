@@ -77,7 +77,7 @@ export async function linkOrCreateMember(
 
     const { first, last } = splitName(name, normalized);
     await sql(
-      `INSERT INTO members (user_id, first_name, last_name, email, house_church_id, is_active)
+      `INSERT INTO members (user_id, first_name, last_name, email, group_id, is_active)
        VALUES ($1, $2, $3, $4, NULL, true)`,
       [userId, first, last, normalized]
     );

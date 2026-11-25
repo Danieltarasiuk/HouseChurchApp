@@ -11,7 +11,7 @@ import { isCalendarCategory } from './calendarCategories';
 import { isHHMM, isISODate, toHHMM } from './calendarDates';
 import { googleErrorMessage, pushEvent } from './googleCalendarSync';
 
-export type CalendarRole = 'admin' | 'house_church_pastor';
+export type CalendarRole = 'admin' | 'group_leader';
 
 export interface CalendarEventRow {
   id: string;

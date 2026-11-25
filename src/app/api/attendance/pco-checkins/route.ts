@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { sql } from '@/lib/db';
 import { todayInChurchTz } from '@/lib/churchTime';
 import { ageOn } from '@/lib/directory';
-import { requireViewer, leaderHcScope, LEADER_ROLES } from '@/lib/authz';
+import { requireViewer, leaderGroupScope, LEADER_ROLES } from '@/lib/authz';
 import {
   getPcoSyncUserId,
   getValidPcoToken,
@@ -30,7 +30,7 @@ function isMinor(dob: unknown): boolean {
 export async function GET(req: NextRequest) {
   const { viewer, error } = await requireViewer({ roles: LEADER_ROLES });
   if (error) return error;
-  const scope = leaderHcScope(viewer);
+  const scope = leaderGroupScope(viewer);
 
   const date = req.nextUrl.searchParams.get('date') || '';
   if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
@@ -57,10 +57,10 @@ export async function GET(req: NextRequest) {
 
     const rows = ids.length
       ? await sql(
-          // Pastors only get members of their own house church.
+          // Pastors only get members of their own group.
           `SELECT id, date_of_birth FROM members
            WHERE is_active = true AND pco_id = ANY($1::text[])
-             AND ($2::text[] IS NULL OR house_church_id::text = ANY($2::text[]))`,
+             AND ($2::text[] IS NULL OR group_id::text = ANY($2::text[]))`,
           [ids, scope]
         )
       : [];

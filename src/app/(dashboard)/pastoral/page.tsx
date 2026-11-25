@@ -16,8 +16,8 @@ interface PastoralMember {
   name: string;
   email: string;
   role: string;
-  house_church_id: string | null;
-  house_church_name: string | null;
+  group_id: string | null;
+  group_name: string | null;
   user_id: string | null;
   date_of_birth: string | null;
   last_meetings: Record<string, string>;
@@ -26,7 +26,7 @@ interface PastoralMember {
   yellow_flag_count: number;
 }
 
-interface HouseChurch { id: string; name: string; }
+interface Group { id: string; name: string; }
 
 interface Flag {
   id: string;
@@ -129,9 +129,9 @@ export default function PastoralPage() {
   const userRole = (session?.user as { role?: string })?.role;
 
   const [members, setMembers] = useState<PastoralMember[]>([]);
-  const [churches, setChurches] = useState<HouseChurch[]>([]);
+  const [groups, setGroups] = useState<Group[]>([]);
   const [loading, setLoading] = useState(true);
-  const [hcFilter, setHcFilter] = useState<string>('');
+  const [groupFilter, setGroupFilter] = useState<string>('');
   const [search, setSearch] = useState('');
   const [showMinors, setShowMinors] = useState(false);
   const [selectedMember, setSelectedMember] = useState<PastoralMember | null>(null);
@@ -144,7 +144,7 @@ export default function PastoralPage() {
   const [panelNotes, setPanelNotes] = useState<PastoralNote[]>([]);
   const [panelAttendance, setPanelAttendance] = useState<{
     sunday_service: { dates: string[]; present: string[] };
-    house_church: { dates: string[]; present: string[] };
+    group: { dates: string[]; present: string[] };
   } | null>(null);
   const [panelLoading, setPanelLoading] = useState(false);
 
@@ -182,9 +182,9 @@ export default function PastoralPage() {
   const [expandedTopics, setExpandedTopics] = useState<Set<string>>(new Set(TOPIC_KEYS));
 
   // Load data
-  const loadMembers = useCallback((hcId?: string) => {
+  const loadMembers = useCallback((groupId?: string) => {
     setLoading(true);
-    const url = hcId ? `/api/pastoral/members?house_church_id=${hcId}` : '/api/pastoral/members';
+    const url = groupId ? `/api/pastoral/members?group_id=${groupId}` : '/api/pastoral/members';
     fetch(url)
       .then(r => r.json())
       .then(data => setMembers(data.members || []))
@@ -193,19 +193,19 @@ export default function PastoralPage() {
   }, []);
 
   useEffect(() => {
-    // Pastors can only filter by their own house churches (the API refuses others).
-    Promise.all([fetch('/api/house-churches').then(r => r.json()), fetch('/api/me').then(r => r.json())])
+    // Pastors can only filter by their own groups (the API refuses others).
+    Promise.all([fetch('/api/groups').then(r => r.json()), fetch('/api/me').then(r => r.json())])
       .then(([d, me]) => {
-        const all: HouseChurch[] = d.churches || [];
-        setChurches(me.role === 'house_church_pastor' ? all.filter(c => (me.pastoredHcIds || []).includes(c.id)) : all);
+        const all: Group[] = d.groups || [];
+        setGroups(me.role === 'group_leader' ? all.filter(c => (me.ledGroupIds || []).includes(c.id)) : all);
       })
       .catch(() => {});
     loadMembers();
   }, [loadMembers]);
 
-  const handleHcChange = (hcId: string) => {
-    setHcFilter(hcId);
-    loadMembers(hcId || undefined);
+  const handleGroupChange = (groupId: string) => {
+    setGroupFilter(groupId);
+    loadMembers(groupId || undefined);
   };
 
   // Open member panel
@@ -265,7 +265,7 @@ export default function PastoralPage() {
         setMeetingTopic('');
         setMeetingNotes('');
         setMeetingDate(todayInChurchTz());
-        loadMembers(hcFilter || undefined);
+        loadMembers(groupFilter || undefined);
       }
     } finally { setSavingMeeting(false); }
   };
@@ -285,7 +285,7 @@ export default function PastoralPage() {
         setPanelFlags(prev => [data.flag, ...prev]);
         setShowFlagForm(false);
         setFlagDesc('');
-        loadMembers(hcFilter || undefined);
+        loadMembers(groupFilter || undefined);
       }
     } finally { setSavingFlag(false); }
   };
@@ -299,7 +299,7 @@ export default function PastoralPage() {
     });
     if (res.ok) {
       setPanelFlags(prev => prev.filter(f => f.id !== flagId));
-      loadMembers(hcFilter || undefined);
+      loadMembers(groupFilter || undefined);
     }
   };
 
@@ -391,7 +391,7 @@ export default function PastoralPage() {
   const selectedTopic = PASTORAL_TOPICS.find(tp => tp.key === meetingTopic);
 
   // Only once the session has loaded: before that the role is unknown.
-  if (session && userRole !== 'admin' && userRole !== 'house_church_pastor') {
+  if (session && userRole !== 'admin' && userRole !== 'group_leader') {
     return (
       <div>
         <div className="page-header"><h2>{t('pastoral.title')}</h2></div>
@@ -408,9 +408,9 @@ export default function PastoralPage() {
 
       {/* Filter Bar */}
       <div style={{ display: 'flex', gap: '12px', marginBottom: '16px', flexWrap: 'wrap' }}>
-        <select className="form-select" style={{ width: 'auto', minWidth: '180px' }} value={hcFilter} onChange={e => handleHcChange(e.target.value)}>
-          <option value="">{t('hc.allCampuses')}</option>
-          {churches.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+        <select className="form-select" style={{ width: 'auto', minWidth: '180px' }} value={groupFilter} onChange={e => handleGroupChange(e.target.value)}>
+          <option value="">{t('group.allCampuses')}</option>
+          {groups.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
         </select>
         <input className="form-input" style={{ maxWidth: '260px' }} placeholder={t('pastoral.searchMembers')} value={search} onChange={e => setSearch(e.target.value)} />
         <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '13px', cursor: 'pointer', whiteSpace: 'nowrap' }}>
@@ -518,12 +518,12 @@ export default function PastoralPage() {
                 {panelAttendance && panelAttendance.sunday_service && (
                   <div style={{ marginBottom: '24px' }}>
                     <h4 style={{ margin: '0 0 12px 0' }}>{t('pastoral.attendance')}</h4>
-                    {(['sunday_service', 'house_church'] as const).map(type => {
+                    {(['sunday_service', 'group'] as const).map(type => {
                       const data = panelAttendance[type];
                       if (!data || data.dates.length === 0) return null;
                       const label = type === 'sunday_service'
                         ? t('pastoral.sundayGathering')
-                        : t('pastoral.houseChurchAttendance');
+                        : t('pastoral.groupAttendance');
                       // Reverse so oldest is on left, newest on right
                       const sortedDates = [...data.dates].reverse();
                       return (
@@ -621,7 +621,7 @@ export default function PastoralPage() {
                       <textarea className="form-input" rows={2} style={{ marginBottom: '8px' }} placeholder={t('pray.requestDesc')} value={prayerDesc} onChange={e => setPrayerDesc(e.target.value)} />
                       <select className="form-select" style={{ marginBottom: '8px' }} value={prayerVisibility} onChange={e => setPrayerVisibility(e.target.value)}>
                         <option value="public">{'\uD83C\uDF10'} {t('pray.public')}</option>
-                        <option value="house_church">{'\uD83C\uDFE0'} {t('pray.houseChurch')}</option>
+                        <option value="group">{'\uD83C\uDFE0'} {t('pray.group')}</option>
                         <option value="private">{'\uD83D\uDD12'} {t('pray.privateLabel')}</option>
                       </select>
                       {prayerError && <p style={{ color: 'var(--danger, #dc2626)', fontSize: '13px', marginBottom: '8px' }}>{prayerError}</p>}
@@ -649,7 +649,7 @@ export default function PastoralPage() {
                             {pr.status}
                           </span>
                           <span className="badge badge-member" style={{ fontSize: '11px' }}>
-                            {pr.visibility === 'public' ? '\uD83C\uDF10' : pr.visibility === 'house_church' ? '\uD83C\uDFE0' : '\uD83D\uDD12'}
+                            {pr.visibility === 'public' ? '\uD83C\uDF10' : pr.visibility === 'group' ? '\uD83C\uDFE0' : '\uD83D\uDD12'}
                           </span>
                         </div>
                       </div>

@@ -44,7 +44,7 @@ export function emptyDraft(date: string): EventDraft {
     isCopy: false,
     title_en: '',
     title_es: '',
-    category: 'house_church',
+    category: 'group',
     allDay: true,
     start_date: date,
     end_date: date,

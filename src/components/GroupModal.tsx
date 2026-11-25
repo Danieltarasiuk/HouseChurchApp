@@ -4,7 +4,7 @@ import { useState, useEffect } from 'react';
 import { useLang } from '@/context/LangContext';
 import { MEETING_DAYS, meetingDayLabel } from '@/lib/formatDate';
 
-interface HouseChurchData {
+interface GroupData {
   id?: string | number;
   name: string;
   description: string | null;
@@ -59,43 +59,43 @@ const emptyForm: FormData = {
 };
 
 
-interface HouseChurchModalProps {
-  houseChurch: HouseChurchData | null; // null = create mode
+interface GroupModalProps {
+  group: GroupData | null; // null = create mode
   members: MemberOption[];
   campuses: CampusOption[];
   onClose: () => void;
   onSaved: () => void;
 }
 
-export default function HouseChurchModal({ houseChurch, members, campuses, onClose, onSaved }: HouseChurchModalProps) {
+export default function GroupModal({ group, members, campuses, onClose, onSaved }: GroupModalProps) {
   const { t } = useLang();
   const [form, setForm] = useState<FormData>(emptyForm);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
 
   useEffect(() => {
-    if (houseChurch) {
+    if (group) {
       setForm({
-        id: houseChurch.id,
-        name: houseChurch.name || '',
-        description: houseChurch.description || '',
-        meeting_day: houseChurch.meeting_day || '',
-        meeting_time: houseChurch.meeting_time || '',
-        location: houseChurch.location || '',
-        address_street: houseChurch.address_street || '',
-        address_city: houseChurch.address_city || '',
-        address_state: houseChurch.address_state || '',
-        address_zip: houseChurch.address_zip || '',
-        pastor_id: houseChurch.pastor_id?.toString() || '',
-        host_id: houseChurch.host_id?.toString() || '',
-        trainee_id: houseChurch.trainee_id?.toString() || '',
-        campus_name: houseChurch.campus_name || '',
-        pco_campus_id: houseChurch.pco_campus_id || '',
+        id: group.id,
+        name: group.name || '',
+        description: group.description || '',
+        meeting_day: group.meeting_day || '',
+        meeting_time: group.meeting_time || '',
+        location: group.location || '',
+        address_street: group.address_street || '',
+        address_city: group.address_city || '',
+        address_state: group.address_state || '',
+        address_zip: group.address_zip || '',
+        pastor_id: group.pastor_id?.toString() || '',
+        host_id: group.host_id?.toString() || '',
+        trainee_id: group.trainee_id?.toString() || '',
+        campus_name: group.campus_name || '',
+        pco_campus_id: group.pco_campus_id || '',
       });
     } else {
       setForm(emptyForm);
     }
-  }, [houseChurch]);
+  }, [group]);
 
   const handleSave = async () => {
     if (!form.name.trim()) return;
@@ -104,7 +104,7 @@ export default function HouseChurchModal({ houseChurch, members, campuses, onClo
 
     try {
       const isEdit = !!form.id;
-      const res = await fetch('/api/house-churches', {
+      const res = await fetch('/api/groups', {
         method: isEdit ? 'PATCH' : 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -122,8 +122,8 @@ export default function HouseChurchModal({ houseChurch, members, campuses, onClo
 
       onSaved();
     } catch (err) {
-      console.error('HC save error:', err);
-      setError(form.id ? t('hc.updateError') : t('hc.createError'));
+      console.error('Group save error:', err);
+      setError(form.id ? t('group.updateError') : t('group.createError'));
     } finally {
       setSaving(false);
     }
@@ -133,35 +133,35 @@ export default function HouseChurchModal({ houseChurch, members, campuses, onClo
     <div className="verse-overlay" onClick={onClose}>
       <div className="verse-modal" style={{ maxWidth: '600px' }} onClick={(e) => e.stopPropagation()}>
         <div className="verse-modal-header">
-          <h3>{form.id ? t('hc.edit') : t('hc.create')}</h3>
+          <h3>{form.id ? t('group.edit') : t('group.create')}</h3>
           <button className="verse-modal-close" onClick={onClose}>✕</button>
         </div>
         <div className="verse-modal-body">
           <div className="form-group">
-            <label>{t('hc.name')} *</label>
+            <label>{t('group.name')} *</label>
             <input className="form-input" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
           </div>
 
           <div className="form-group">
-            <label>{t('hc.description')}</label>
+            <label>{t('group.description')}</label>
             <textarea className="form-input" rows={2} value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} />
           </div>
 
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
             <div className="form-group">
-              <label>{t('hc.campus')}</label>
+              <label>{t('group.campus')}</label>
               <select className="form-select" value={form.campus_name} onChange={(e) => {
                 const campus = campuses.find(c => c.campus_name === e.target.value);
                 setForm({ ...form, campus_name: e.target.value, pco_campus_id: campus?.pco_campus_id || '' });
               }}>
                 <option value="">—</option>
                 {campuses.map((c) => (
-                  <option key={c.pco_campus_id} value={c.campus_name}>{c.campus_name} ({c.member_count} {t('hc.members')})</option>
+                  <option key={c.pco_campus_id} value={c.campus_name}>{c.campus_name} ({c.member_count} {t('group.members')})</option>
                 ))}
               </select>
             </div>
             <div className="form-group">
-              <label>{t('hc.meetingDay')}</label>
+              <label>{t('group.meetingDay')}</label>
               <select className="form-select" value={form.meeting_day} onChange={(e) => setForm({ ...form, meeting_day: e.target.value })}>
                 <option value="">—</option>
                 {MEETING_DAYS.map(d => <option key={d} value={d}>{meetingDayLabel(t, d)}</option>)}
@@ -171,61 +171,61 @@ export default function HouseChurchModal({ houseChurch, members, campuses, onClo
 
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
             <div className="form-group">
-              <label>{t('hc.meetingTime')}</label>
+              <label>{t('group.meetingTime')}</label>
               <input className="form-input" type="time" value={form.meeting_time} onChange={(e) => setForm({ ...form, meeting_time: e.target.value })} />
             </div>
             <div className="form-group">
-              <label>{t('hc.location')}</label>
-              <input className="form-input" value={form.location} onChange={(e) => setForm({ ...form, location: e.target.value })} placeholder={t('hc.locationPlaceholder')} />
+              <label>{t('group.location')}</label>
+              <input className="form-input" value={form.location} onChange={(e) => setForm({ ...form, location: e.target.value })} placeholder={t('group.locationPlaceholder')} />
             </div>
           </div>
 
           <div style={{ borderTop: '1px solid var(--border)', paddingTop: '16px', marginTop: '8px' }}>
             <label style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '8px', display: 'block' }}>
-              {t('hc.address')}
+              {t('group.address')}
             </label>
             <div className="form-group">
-              <input className="form-input" placeholder={t('hc.street')} value={form.address_street} onChange={(e) => setForm({ ...form, address_street: e.target.value })} />
+              <input className="form-input" placeholder={t('group.street')} value={form.address_street} onChange={(e) => setForm({ ...form, address_street: e.target.value })} />
             </div>
             <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr', gap: '12px' }}>
               <div className="form-group">
-                <input className="form-input" placeholder={t('hc.city')} value={form.address_city} onChange={(e) => setForm({ ...form, address_city: e.target.value })} />
+                <input className="form-input" placeholder={t('group.city')} value={form.address_city} onChange={(e) => setForm({ ...form, address_city: e.target.value })} />
               </div>
               <div className="form-group">
-                <input className="form-input" placeholder={t('hc.state')} value={form.address_state} onChange={(e) => setForm({ ...form, address_state: e.target.value })} />
+                <input className="form-input" placeholder={t('group.state')} value={form.address_state} onChange={(e) => setForm({ ...form, address_state: e.target.value })} />
               </div>
               <div className="form-group">
-                <input className="form-input" placeholder={t('hc.zip')} value={form.address_zip} onChange={(e) => setForm({ ...form, address_zip: e.target.value })} />
+                <input className="form-input" placeholder={t('group.zip')} value={form.address_zip} onChange={(e) => setForm({ ...form, address_zip: e.target.value })} />
               </div>
             </div>
           </div>
 
           <div style={{ borderTop: '1px solid var(--border)', paddingTop: '16px', marginTop: '8px' }}>
             <label style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '8px', display: 'block' }}>
-              {t('hc.leadership')}
+              {t('group.leadership')}
             </label>
             <div className="form-group">
-              <label>{t('hc.pastor')}</label>
+              <label>{t('group.pastor')}</label>
               <select className="form-select" value={form.pastor_id} onChange={(e) => setForm({ ...form, pastor_id: e.target.value })}>
-                <option value="">{t('hc.selectMember')}</option>
+                <option value="">{t('group.selectMember')}</option>
                 {members.map((m) => (
                   <option key={m.id} value={m.id}>{m.first_name} {m.last_name}</option>
                 ))}
               </select>
             </div>
             <div className="form-group">
-              <label>{t('hc.host')}</label>
+              <label>{t('group.host')}</label>
               <select className="form-select" value={form.host_id} onChange={(e) => setForm({ ...form, host_id: e.target.value })}>
-                <option value="">{t('hc.selectMember')}</option>
+                <option value="">{t('group.selectMember')}</option>
                 {members.map((m) => (
                   <option key={m.id} value={m.id}>{m.first_name} {m.last_name}</option>
                 ))}
               </select>
             </div>
             <div className="form-group">
-              <label>{t('hc.trainee')}</label>
+              <label>{t('group.trainee')}</label>
               <select className="form-select" value={form.trainee_id} onChange={(e) => setForm({ ...form, trainee_id: e.target.value })}>
-                <option value="">{t('hc.selectMember')}</option>
+                <option value="">{t('group.selectMember')}</option>
                 {members.map((m) => (
                   <option key={m.id} value={m.id}>{m.first_name} {m.last_name}</option>
                 ))}

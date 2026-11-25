@@ -9,7 +9,7 @@ export async function GET(req: NextRequest) {
   }
 
   const userRole = (session.user as { role?: string }).role;
-  if (userRole !== 'admin' && userRole !== 'house_church_pastor') {
+  if (userRole !== 'admin' && userRole !== 'group_leader') {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
   }
 
@@ -42,7 +42,7 @@ export async function POST(req: NextRequest) {
   }
 
   const userRole = (session.user as { role?: string }).role;
-  if (userRole !== 'admin' && userRole !== 'house_church_pastor') {
+  if (userRole !== 'admin' && userRole !== 'group_leader') {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
   }
 

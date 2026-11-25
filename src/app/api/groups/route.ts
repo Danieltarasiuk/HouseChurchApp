@@ -2,14 +2,14 @@ import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/lib/auth';
 import { sql } from '@/lib/db';
 import { requireViewer } from '@/lib/authz';
-import { geocodeHouseChurchAsync } from '@/lib/geocode';
+import { geocodeGroupAsync } from '@/lib/geocode';
 
 export async function GET() {
   const { error } = await requireViewer();
   if (error) return error;
 
   try {
-    const churches = await sql(
+    const groups = await sql(
       `SELECT hc.id, hc.name, hc.description, hc.meeting_day, hc.meeting_time,
               hc.location, hc.pco_campus_id, hc.campus_name,
               hc.address_street, hc.address_city, hc.address_state, hc.address_zip,
@@ -18,8 +18,8 @@ export async function GET() {
               p_member.first_name || ' ' || p_member.last_name AS pastor_name,
               h_member.first_name || ' ' || h_member.last_name AS host_name,
               t_member.first_name || ' ' || t_member.last_name AS trainee_name,
-              (SELECT COUNT(*) FROM members m WHERE m.house_church_id = hc.id AND m.is_active = true)::int AS member_count
-       FROM house_churches hc
+              (SELECT COUNT(*) FROM members m WHERE m.group_id = hc.id AND m.is_active = true)::int AS member_count
+       FROM groups hc
        LEFT JOIN members p_member ON hc.pastor_id = p_member.id
        LEFT JOIN members h_member ON hc.host_id = h_member.id
        LEFT JOIN members t_member ON hc.trainee_id = t_member.id
@@ -31,17 +31,17 @@ export async function GET() {
     const campuses = await sql(
       `SELECT hc.pco_campus_id, hc.campus_name,
               COUNT(DISTINCT m.id)::int AS member_count
-       FROM house_churches hc
+       FROM groups hc
        LEFT JOIN members m ON m.campus_pco_id = hc.pco_campus_id AND m.is_active = true
        WHERE hc.is_active = true AND hc.pco_campus_id IS NOT NULL
        GROUP BY hc.pco_campus_id, hc.campus_name
        ORDER BY hc.campus_name`
     );
 
-    return NextResponse.json({ churches, campuses });
+    return NextResponse.json({ groups, campuses });
   } catch (error) {
-    console.error('House churches error:', error);
-    return NextResponse.json({ error: 'Failed to load house churches' }, { status: 500 });
+    console.error('Groups error:', error);
+    return NextResponse.json({ error: 'Failed to load groups' }, { status: 500 });
   }
 }
 
@@ -69,7 +69,7 @@ export async function POST(req: NextRequest) {
     }
 
     const result = await sql(
-      `INSERT INTO house_churches (name, description, meeting_day, meeting_time, location,
+      `INSERT INTO groups (name, description, meeting_day, meeting_time, location,
                                     address_street, address_city, address_state, address_zip,
                                     pastor_id, host_id, trainee_id, campus_name, pco_campus_id, is_active)
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, true)
@@ -81,28 +81,28 @@ export async function POST(req: NextRequest) {
       ]
     );
 
-    const newHcId = result[0].id;
+    const newGroupId = result[0].id;
 
     // Fire-and-forget geocode the address
     if (address_street || address_city) {
-      geocodeHouseChurchAsync(newHcId, address_street || '', address_city || '', address_state || '', address_zip || '');
+      geocodeGroupAsync(newGroupId, address_street || '', address_city || '', address_state || '', address_zip || '');
     }
 
-    // Auto-assign members from selected campus to this house church
+    // Auto-assign members from selected campus to this group
     if (pco_campus_id) {
       await sql(
-        `UPDATE members SET house_church_id = $1
-         WHERE campus_pco_id = $2 AND is_active = true AND (house_church_id IS NULL OR house_church_id IN (
-           SELECT id FROM house_churches WHERE pco_campus_id = $3
+        `UPDATE members SET group_id = $1
+         WHERE campus_pco_id = $2 AND is_active = true AND (group_id IS NULL OR group_id IN (
+           SELECT id FROM groups WHERE pco_campus_id = $3
          ))`,
-        [newHcId, pco_campus_id, pco_campus_id]
+        [newGroupId, pco_campus_id, pco_campus_id]
       );
     }
 
-    return NextResponse.json({ id: newHcId });
+    return NextResponse.json({ id: newGroupId });
   } catch (error) {
-    console.error('Create house church error:', error);
-    return NextResponse.json({ error: 'Failed to create house church' }, { status: 500 });
+    console.error('Create group error:', error);
+    return NextResponse.json({ error: 'Failed to create group' }, { status: 500 });
   }
 }
 
@@ -130,7 +130,7 @@ export async function PATCH(req: NextRequest) {
     }
 
     await sql(
-      `UPDATE house_churches SET
+      `UPDATE groups SET
         name = $1, description = $2, meeting_day = $3, meeting_time = $4, location = $5,
         address_street = $6, address_city = $7, address_state = $8, address_zip = $9,
         pastor_id = $10, host_id = $11, trainee_id = $12, campus_name = $13, pco_campus_id = $14,
@@ -146,12 +146,12 @@ export async function PATCH(req: NextRequest) {
 
     // Fire-and-forget geocode the updated address
     if (address_street || address_city) {
-      geocodeHouseChurchAsync(id, address_street || '', address_city || '', address_state || '', address_zip || '');
+      geocodeGroupAsync(id, address_street || '', address_city || '', address_state || '', address_zip || '');
     }
 
     return NextResponse.json({ success: true });
   } catch (error) {
-    console.error('Update house church error:', error);
-    return NextResponse.json({ error: 'Failed to update house church' }, { status: 500 });
+    console.error('Update group error:', error);
+    return NextResponse.json({ error: 'Failed to update group' }, { status: 500 });
   }
 }

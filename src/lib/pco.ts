@@ -1,5 +1,5 @@
 import { sql, withTransaction } from '@/lib/db';
-import { geocodeMembersWithoutCoords, geocodeHouseChurchesWithoutCoords } from '@/lib/geocode';
+import { geocodeMembersWithoutCoords, geocodeGroupsWithoutCoords } from '@/lib/geocode';
 import { isoDateInChurchTz } from '@/lib/churchTime';
 
 export type PcoErrorReason =
@@ -535,11 +535,11 @@ export interface PcoSyncResult {
   skipped: number;
   archived: number;
   geocoded: number;
-  hcGeocoded: number;
+  groupsGeocoded: number;
   total: number;
   campuses: number;
-  /** House churches deactivated because their campus is gone from PCO. */
-  houseChurchesDeactivated: number;
+  /** Groups deactivated because their campus is gone from PCO. */
+  groupsDeactivated: number;
 }
 
 /** English summary line for logs. */
@@ -547,7 +547,7 @@ export function describeSyncResult(result: PcoSyncResult): string {
   const base = result.status === 'failed'
     ? 'Sync failed'
     : `Imported ${result.imported}, archived ${result.archived}, ${result.campuses} campuses` +
-      (result.houseChurchesDeactivated ? `, ${result.houseChurchesDeactivated} house churches deactivated` : '');
+      (result.groupsDeactivated ? `, ${result.groupsDeactivated} groups deactivated` : '');
   return result.warnings.length
     ? `${base}. ${result.warnings.map(describeWarning).join('; ')}`
     : base;
@@ -608,13 +608,13 @@ export interface PcoSyncOptions {
 }
 
 /**
- * Full Planning Center sync: campuses → house_churches, active people →
+ * Full Planning Center sync: campuses → groups, active people →
  * members (with households), deactivation of people no longer active in PCO,
  * then geocoding. Shared by the manual "Sync Members" route and the weekly cron.
  *
  * Every step is independent and all or nothing. A step whose PCO data is
  * failed, malformed or incomplete changes nothing it owns and adds a warning:
- *   campuses   → house churches untouched, members keep their house_church_id
+ *   campuses   → groups untouched, members keep their group_id
  *   households → members keep their household values
  *   people     → no member is updated or archived; the run is 'failed'
  *   archive    → skipped (warning on the people step) if the guard trips
@@ -630,18 +630,18 @@ export async function runPcoSync(token: string, opts: PcoSyncOptions = {}): Prom
     fetchHouseholds(token),
   ]);
 
-  // 2. Campuses → house_churches
-  const campusToHcId = new Map<string, string>();
-  let houseChurchesDeactivated = 0;
+  // 2. Campuses → groups
+  const campusToGroupId = new Map<string, string>();
+  let groupsDeactivated = 0;
   if (campusesRes.ok) {
     for (const [pcoId, campusInfo] of campusesRes.value) {
-      const existing = await sql('SELECT id FROM house_churches WHERE pco_campus_id = $1', [pcoId]);
+      const existing = await sql('SELECT id FROM groups WHERE pco_campus_id = $1', [pcoId]);
 
       if (existing.length > 0) {
-        campusToHcId.set(pcoId, existing[0].id);
+        campusToGroupId.set(pcoId, existing[0].id);
         // Update name and address in case they changed
         await sql(
-          `UPDATE house_churches SET name = $1, campus_name = $1, is_active = true,
+          `UPDATE groups SET name = $1, campus_name = $1, is_active = true,
            address_street = COALESCE(NULLIF($3, ''), address_street),
            address_city = COALESCE(NULLIF($4, ''), address_city),
            address_state = COALESCE(NULLIF($5, ''), address_state),
@@ -651,26 +651,26 @@ export async function runPcoSync(token: string, opts: PcoSyncOptions = {}): Prom
         );
       } else {
         const result = await sql(
-          `INSERT INTO house_churches (name, pco_campus_id, campus_name,
+          `INSERT INTO groups (name, pco_campus_id, campus_name,
            address_street, address_city, address_state, address_zip, is_active)
            VALUES ($1, $2, $1, $3, $4, $5, $6, true) RETURNING id`,
           [campusInfo.name, pcoId, campusInfo.street || null, campusInfo.city || null, campusInfo.state || null, campusInfo.zip || null]
         );
-        campusToHcId.set(pcoId, result[0].id);
+        campusToGroupId.set(pcoId, result[0].id);
       }
     }
-    // Campuses deleted in PCO: deactivate their house churches. Safe only
+    // Campuses deleted in PCO: deactivate their groups. Safe only
     // because the campuses fetch above was complete (all pages, matching
     // total_count, non-empty). Reversible: a campus that reappears is set
     // active again by the update above.
     const gone = await sql(
-      `UPDATE house_churches SET is_active = false
+      `UPDATE groups SET is_active = false
        WHERE pco_campus_id IS NOT NULL AND is_active = true
          AND NOT (pco_campus_id = ANY($1::text[]))
        RETURNING id`,
       [[...campusesRes.value.keys()]]
     );
-    houseChurchesDeactivated = gone.length;
+    groupsDeactivated = gone.length;
   } else {
     warnings.push(campusesRes.warning);
   }
@@ -705,17 +705,17 @@ export async function runPcoSync(token: string, opts: PcoSyncOptions = {}): Prom
 
     // 3b. People → members
     for (const person of people) {
-      const hcId = person.campus_pco_id ? (campusToHcId.get(person.campus_pco_id) || null) : null;
+      const groupId = person.campus_pco_id ? (campusToGroupId.get(person.campus_pco_id) || null) : null;
       const household = householdsRes.ok ? householdsRes.value.get(person.pco_id) : undefined;
 
       // $16: households fetched fine → overwrite (a person in no household is
       //      cleared); otherwise keep the member's existing values.
-      // $17: same for house_church_id against the campuses step.
+      // $17: same for group_id against the campuses step.
       // Address: blank PCO values never overwrite. When the resulting address
       //      differs from the stored one, clear the coordinates so the
       //      geocoding step looks the new address up.
       const result = await sql(
-        `INSERT INTO members (first_name, last_name, email, phone, house_church_id,
+        `INSERT INTO members (first_name, last_name, email, phone, group_id,
                               gender, date_of_birth,
                               address_street, address_city, address_state, address_zip,
                               pco_id, campus_pco_id, pco_household_id, household_name, is_active)
@@ -725,7 +725,7 @@ export async function runPcoSync(token: string, opts: PcoSyncOptions = {}): Prom
            last_name = EXCLUDED.last_name,
            email = COALESCE(NULLIF(EXCLUDED.email, ''), members.email),
            phone = COALESCE(NULLIF(EXCLUDED.phone, ''), members.phone),
-           house_church_id = CASE WHEN $17 THEN EXCLUDED.house_church_id ELSE members.house_church_id END,
+           group_id = CASE WHEN $17 THEN EXCLUDED.group_id ELSE members.group_id END,
            gender = COALESCE(EXCLUDED.gender, members.gender),
            date_of_birth = COALESCE(EXCLUDED.date_of_birth, members.date_of_birth),
            address_street = COALESCE(NULLIF(EXCLUDED.address_street, ''), members.address_street),
@@ -741,7 +741,7 @@ export async function runPcoSync(token: string, opts: PcoSyncOptions = {}): Prom
          RETURNING id`,
         [
           person.first_name, person.last_name, person.email || null,
-          person.phone || null, hcId,
+          person.phone || null, groupId,
           person.gender || null, person.date_of_birth || null,
           person.address_street || null, person.address_city || null,
           person.address_state || null, person.address_zip || null,
@@ -771,14 +771,14 @@ export async function runPcoSync(token: string, opts: PcoSyncOptions = {}): Prom
     }
   }
 
-  // 4. Geocode house churches, then members (the slow step: Nominatim allows
+  // 4. Geocode groups, then members (the slow step: Nominatim allows
   //    1 req/sec, so it runs last against a deadline; leftovers roll over).
-  let hcGeocoded = 0;
+  let groupsGeocoded = 0;
   let geocoded = 0;
   let geocodeErrors = 0;
   try {
-    const hc = await geocodeHouseChurchesWithoutCoords({ deadline: opts.geocodeDeadline });
-    hcGeocoded = hc.geocoded;
+    const hc = await geocodeGroupsWithoutCoords({ deadline: opts.geocodeDeadline });
+    groupsGeocoded = hc.geocoded;
     geocodeErrors += hc.errors;
     const m = await geocodeMembersWithoutCoords({ deadline: opts.geocodeDeadline });
     geocoded = m.geocoded;
@@ -796,10 +796,10 @@ export async function runPcoSync(token: string, opts: PcoSyncOptions = {}): Prom
     skipped,
     archived,
     geocoded,
-    hcGeocoded,
+    groupsGeocoded,
     total,
     campuses: campusesRes.ok ? campusesRes.value.size : 0,
-    houseChurchesDeactivated,
+    groupsDeactivated,
   };
 }
 

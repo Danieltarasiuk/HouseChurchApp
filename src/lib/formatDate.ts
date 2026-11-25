@@ -59,7 +59,7 @@ function label(t: T, prefix: string, value: string | null | undefined): string {
 /** members.gender is stored as 'Male' / 'Female' (from PCO). */
 export const genderLabel = (t: T, value: string | null | undefined) => label(t, 'gender', value);
 
-/** house_churches.meeting_day is stored as an English weekday ('Sunday'…). */
+/** groups.meeting_day is stored as an English weekday ('Sunday'…). */
 export const meetingDayLabel = (t: T, value: string | null | undefined) => label(t, 'day', value);
 
 /** Stored meeting_day values, Sunday first (the stored value stays English). */

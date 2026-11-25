@@ -3,7 +3,7 @@ import type { Viewer } from '@/lib/authz';
 export interface PrayerScope {
   user_id: string | null;
   visibility: string;
-  house_church_id: string | null;
+  group_id: string | null;
 }
 
 /**
@@ -11,7 +11,7 @@ export interface PrayerScope {
  * the two can never disagree.
  *   - its creator, and admins: always
  *   - public: every signed-in member
- *   - house_church: members of that house church, and its pastor
+ *   - group: members of that group, and its pastor
  *   - private: its pastor only
  */
 export function canSeePrayer(v: Viewer, p: PrayerScope): boolean {
@@ -19,9 +19,9 @@ export function canSeePrayer(v: Viewer, p: PrayerScope): boolean {
   if (v.role === 'admin') return true;
   if (p.visibility === 'public') return true;
 
-  const pastorsIt = !!p.house_church_id && v.role === 'house_church_pastor' && v.pastoredHcIds.includes(p.house_church_id);
-  if (p.visibility === 'house_church') {
-    return pastorsIt || (!!v.houseChurchId && v.houseChurchId === p.house_church_id);
+  const pastorsIt = !!p.group_id && v.role === 'group_leader' && v.ledGroupIds.includes(p.group_id);
+  if (p.visibility === 'group') {
+    return pastorsIt || (!!v.groupId && v.groupId === p.group_id);
   }
   if (p.visibility === 'private') return pastorsIt;
   return false;

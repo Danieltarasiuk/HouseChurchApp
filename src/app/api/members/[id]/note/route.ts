@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { sql } from '@/lib/db';
-import { requireViewer, forbidden, leadsMemberIn, memberHouseChurches, LEADER_ROLES } from '@/lib/authz';
+import { requireViewer, forbidden, leadsMemberIn, memberGroups, LEADER_ROLES } from '@/lib/authz';
 
 const MAX_NOTE_LENGTH = 120;
 
@@ -14,8 +14,8 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
 
   const { id } = await params;
 
-  // Admins, and the pastor of this member's house church.
-  const hcs = await memberHouseChurches([id]);
+  // Admins, and the pastor of this member's group.
+  const hcs = await memberGroups([id]);
   if (!hcs.has(id)) return NextResponse.json({ error: 'Member not found' }, { status: 404 });
   if (!leadsMemberIn(viewer, hcs.get(id))) return forbidden();
 

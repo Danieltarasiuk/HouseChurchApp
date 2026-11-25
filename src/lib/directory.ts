@@ -5,26 +5,26 @@ import type { Viewer } from '@/lib/authz';
  * Member directory visibility: who may see which contact fields.
  *
  * Levels, tightest first:
- *   leaders  admins, and the pastor of that member's house church
- *   group    also members of the same house church
+ *   leaders  admins, and the pastor of that member's group
+ *   group    also members of the same group
  *   church   any signed-in member
  *
  * Four layers can each set a level per field: the church default (admins),
- * the member's house church (admins or its pastor), the individual (admins
+ * the member's group (admins or its pastor), the individual (admins
  * or the member's pastor) and the member's own setting (only the member).
  * A missing setting means "no restriction from this layer", except that with
  * no church default the field is "leaders". The effective level is the
  * tightest across all four, so no layer can loosen another.
  *
  * Always, regardless of levels:
- *   - name, house church, gender and role are visible to every signed-in member
+ *   - name, group, gender and role are visible to every signed-in member
  *   - admins see every field of everyone, with the full date of birth
- *   - a pastor sees every field of their own house church's members, with the
+ *   - a pastor sees every field of their own group's members, with the
  *     full date of birth; for anyone else they are a regular member
  *   - a member sees all of their own fields
  *   - everyone else never gets the birth year: only month and day
  *   - attendance_note goes only to admins and the member's pastor
- *   - a member with no house church: nobody is in their group, so "group"
+ *   - a member with no group: nobody is in their group, so "group"
  *     behaves as "leaders"
  *
  * redactMember() applies this to a row server-side by deleting the keys the
@@ -53,13 +53,13 @@ export type LayerSettings = Partial<Record<DirectoryField, VisibilityLevel>>;
 
 export interface VisibilitySettings {
   church: LayerSettings;
-  houseChurch: Map<string, LayerSettings>;
+  group: Map<string, LayerSettings>;
   member: Map<string, LayerSettings>;
   memberSelf: Map<string, LayerSettings>;
 }
 
 export const emptySettings = (): VisibilitySettings => ({
-  church: {}, houseChurch: new Map(), member: new Map(), memberSelf: new Map(),
+  church: {}, group: new Map(), member: new Map(), memberSelf: new Map(),
 });
 
 export const isField = (v: unknown): v is DirectoryField => DIRECTORY_FIELDS.includes(v as DirectoryField);
@@ -84,14 +84,14 @@ function resolve(layers: [VisibilityScope, VisibilityLevel | undefined][]): Effe
 
 export interface MemberRef {
   id: string;
-  house_church_id: string | null;
+  group_id: string | null;
 }
 
 /** All four layers for a member, top first. */
 function layersFor(s: VisibilitySettings, field: DirectoryField, m: MemberRef): [VisibilityScope, VisibilityLevel | undefined][] {
   return [
     ['church', s.church[field]],
-    ['house_church', m.house_church_id ? s.houseChurch.get(m.house_church_id)?.[field] : undefined],
+    ['group', m.group_id ? s.group.get(m.group_id)?.[field] : undefined],
     ['member', s.member.get(m.id)?.[field]],
     ['member_self', s.memberSelf.get(m.id)?.[field]],
   ];
@@ -104,24 +104,24 @@ export function effectiveVisibility(s: VisibilitySettings, field: DirectoryField
 /**
  * For a settings screen at `scope`: the level in effect for its target and
  * the ceiling from the layers above it (options looser than the ceiling can
- * have no effect and are disabled). A house church target has no member
+ * have no effect and are disabled). A group target has no member
  * layers; the church target has no ceiling.
  */
 export function layerView(
   s: VisibilitySettings,
   scope: VisibilityScope,
   field: DirectoryField,
-  target: { houseChurchId: string | null; memberId: string | null }
+  target: { groupId: string | null; memberId: string | null }
 ): { value: VisibilityLevel | null; effective: Effective; ceiling: Effective | null } {
   const all: [VisibilityScope, VisibilityLevel | undefined][] = [
     ['church', s.church[field]],
-    ['house_church', target.houseChurchId ? s.houseChurch.get(target.houseChurchId)?.[field] : undefined],
+    ['group', target.groupId ? s.group.get(target.groupId)?.[field] : undefined],
     ['member', target.memberId ? s.member.get(target.memberId)?.[field] : undefined],
     ['member_self', target.memberId ? s.memberSelf.get(target.memberId)?.[field] : undefined],
   ];
   const depth = VISIBILITY_SCOPES.indexOf(scope);
-  // Layers below the target don't apply to it (e.g. member layers for a house church).
-  const relevant = scope === 'church' || scope === 'house_church' ? all.slice(0, depth + 1) : all;
+  // Layers below the target don't apply to it (e.g. member layers for a group).
+  const relevant = scope === 'church' || scope === 'group' ? all.slice(0, depth + 1) : all;
   return {
     value: all[depth][1] ?? null,
     effective: resolve(relevant)!,
@@ -135,8 +135,8 @@ export type Relation = 'self' | 'admin' | 'pastor' | 'group' | 'church';
 export function relationTo(v: Viewer, m: MemberRef): Relation {
   if (v.memberId && v.memberId === m.id) return 'self';
   if (v.role === 'admin') return 'admin';
-  if (v.role === 'house_church_pastor' && m.house_church_id && v.pastoredHcIds.includes(m.house_church_id)) return 'pastor';
-  if (v.houseChurchId && m.house_church_id && v.houseChurchId === m.house_church_id) return 'group';
+  if (v.role === 'group_leader' && m.group_id && v.ledGroupIds.includes(m.group_id)) return 'pastor';
+  if (v.groupId && m.group_id && v.groupId === m.group_id) return 'group';
   return 'church';
 }
 
@@ -165,7 +165,7 @@ export function ageOn(dob: string, today: string): number {
 
 /**
  * Removes every key of `row` the viewer may not see. `row` must include `id`
- * and `house_church_id`; only keys present are considered, so routes with
+ * and `group_id`; only keys present are considered, so routes with
  * different column sets can share this.
  *
  * Birthday: full date (`date_of_birth`, YYYY-MM-DD) only for self, admins and
@@ -214,7 +214,7 @@ export async function loadVisibilitySettings(): Promise<VisibilitySettings> {
       map.set(r.scope_id, layer);
     };
     if (r.scope === 'church') s.church[r.field as DirectoryField] = r.level as VisibilityLevel;
-    else if (r.scope === 'house_church') put(s.houseChurch);
+    else if (r.scope === 'group') put(s.group);
     else if (r.scope === 'member') put(s.member);
     else if (r.scope === 'member_self') put(s.memberSelf);
   }

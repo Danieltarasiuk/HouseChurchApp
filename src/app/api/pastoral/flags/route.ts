@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { sql } from '@/lib/db';
-import { requireViewer, forbidden, leadsMemberIn, memberHouseChurches, LEADER_ROLES } from '@/lib/authz';
+import { requireViewer, forbidden, leadsMemberIn, memberGroups, LEADER_ROLES } from '@/lib/authz';
 
 export async function GET(req: NextRequest) {
   const { viewer, error } = await requireViewer({ roles: LEADER_ROLES });
@@ -11,8 +11,8 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: 'member_id is required' }, { status: 400 });
   }
 
-  // Pastors: members of their own house church only (admins: everyone).
-  const hcs = await memberHouseChurches([memberId]);
+  // Pastors: members of their own group only (admins: everyone).
+  const hcs = await memberGroups([memberId]);
   if (!hcs.has(memberId) || !leadsMemberIn(viewer, hcs.get(memberId))) return forbidden();
 
   try {
@@ -57,7 +57,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Invalid flag_color' }, { status: 400 });
     }
 
-    const hcs = await memberHouseChurches([String(member_id)]);
+    const hcs = await memberGroups([String(member_id)]);
     if (!hcs.has(String(member_id)) || !leadsMemberIn(viewer, hcs.get(String(member_id)))) return forbidden();
 
     const result = await sql(

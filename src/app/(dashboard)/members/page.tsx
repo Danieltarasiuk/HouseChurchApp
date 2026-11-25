@@ -6,7 +6,7 @@ import { useSession } from 'next-auth/react';
 import { useLang } from '@/context/LangContext';
 import { genderLabel } from '@/lib/formatDate';
 import { Map as MapIcon } from 'lucide-react';
-import { getHCColor, escapeHtml } from '@/lib/map-utils';
+import { getGroupColor, escapeHtml } from '@/lib/map-utils';
 import type { MapMarker } from '@/lib/map-utils';
 import { birthdayMD, birthdayKeyMD, formatBirthdayMD, isMinorRow } from '@/lib/memberDisplay';
 import { MemberDetailPanel } from '@/components/MemberDetailPanel';
@@ -21,8 +21,8 @@ interface Member {
   email?: string | null;
   phone?: string | null;
   role: string;
-  house_church_id: string | null;
-  house_church_name: string | null;
+  group_id: string | null;
+  group_name: string | null;
   gender: string | null;
   date_of_birth?: string | null;
   birthday?: string | null;
@@ -45,7 +45,7 @@ const roleLabel = (role: string, t: (k: string) => string) => {
 const roleBadgeClass = (role: string) => {
   switch (role) {
     case 'admin': return 'badge badge-pastor';
-    case 'house_church_pastor': return 'badge badge-leader';
+    case 'group_leader': return 'badge badge-leader';
     default: return 'badge badge-member';
   }
 };
@@ -75,7 +75,7 @@ function formatAddress(m: { address_street?: string | null; address_city?: strin
   return parts.length > 0 ? parts.join(', ') : null;
 }
 
-type SortColumn = 'name' | 'house_church' | 'gender' | 'age' | 'birthday' | 'address' | 'email' | 'phone';
+type SortColumn = 'name' | 'group' | 'gender' | 'age' | 'birthday' | 'address' | 'email' | 'phone';
 type SortDir = 'asc' | 'desc';
 
 function compareSorted(a: string | number | null, b: string | number | null, dir: SortDir): number {
@@ -94,7 +94,7 @@ export default function MembersPage() {
   const { t, language } = useLang();
   const { data: session } = useSession();
   const userRole = (session?.user as { role?: string })?.role;
-  const canSeeMap = userRole === 'admin' || userRole === 'house_church_pastor';
+  const canSeeMap = userRole === 'admin' || userRole === 'group_leader';
 
   const [search, setSearch] = useState('');
   const [members, setMembers] = useState<Member[]>([]);
@@ -154,9 +154,9 @@ export default function MembersPage() {
           va = `${a.first_name} ${a.last_name}`;
           vb = `${b.first_name} ${b.last_name}`;
           break;
-        case 'house_church':
-          va = a.house_church_name;
-          vb = b.house_church_name;
+        case 'group':
+          va = a.group_name;
+          vb = b.group_name;
           break;
         case 'gender':
           va = a.gender;
@@ -187,10 +187,10 @@ export default function MembersPage() {
     });
   }, [filtered, sortCol, sortDir]);
 
-  // Build unique HC IDs for deterministic coloring
-  const allHCIds = useMemo(() => {
+  // Build unique group IDs for deterministic coloring
+  const allGroupIds = useMemo(() => {
     const ids = new Set<string>();
-    members.forEach(m => { if (m.house_church_id) ids.add(m.house_church_id); });
+    members.forEach(m => { if (m.group_id) ids.add(m.group_id); });
     return Array.from(ids).sort();
   }, [members]);
 
@@ -204,11 +204,11 @@ export default function MembersPage() {
           lat: m.latitude!,
           lng: m.longitude!,
           type: 'member' as const,
-          color: m.house_church_id ? getHCColor(m.house_church_id, allHCIds) : '#9CA3AF',
+          color: m.group_id ? getGroupColor(m.group_id, allGroupIds) : '#9CA3AF',
           tooltipHtml: `<strong>${escapeHtml(`${m.first_name} ${m.last_name}`)}</strong><br/>${escapeHtml(addr || '—')}`,
         };
       });
-  }, [filtered, allHCIds]);
+  }, [filtered, allGroupIds]);
 
   const emptyMsg = t('map.noLocationsSync');
 
@@ -265,7 +265,7 @@ export default function MembersPage() {
                 <tr>
                   {([
                     ['name', t('common.name'), ''],
-                    ['house_church', t('mem.houseChurch'), ''],
+                    ['group', t('mem.group'), ''],
                     ['gender', t('mem.gender'), ''],
                     ['age', t('mem.age'), ''],
                     ['birthday', t('mem.birthday'), ''],
@@ -318,7 +318,7 @@ export default function MembersPage() {
                             )}
                           </span>
                         </td>
-                        <td>{member.house_church_name || '—'}</td>
+                        <td>{member.group_name || '—'}</td>
                         <td>{genderLabel(t, member.gender)}</td>
                         <td>{age !== null ? age : '—'}</td>
                         <td>{bday}</td>
