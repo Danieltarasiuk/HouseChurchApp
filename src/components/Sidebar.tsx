@@ -74,10 +74,10 @@ export function Sidebar() {
       testId: 'nav-incubator',
     },
     {
-      href: '/house-churches',
+      href: '/groups',
       icon: Home,
-      label: t('nav.churches'),
-      testId: 'nav-churches',
+      label: t('nav.groups'),
+      testId: 'nav-groups',
     },
     {
       href: '/members',
@@ -90,21 +90,21 @@ export function Sidebar() {
       icon: HeartHandshake,
       label: t('nav.pastoral'),
       testId: 'nav-pastoral',
-      roles: ['admin', 'house_church_pastor'],
+      roles: ['admin', 'group_leader'],
     },
     {
       href: '/calendar',
       icon: CalendarDays,
       label: t('nav.calendar'),
       testId: 'nav-calendar',
-      roles: ['admin', 'house_church_pastor'],
+      roles: ['admin', 'group_leader'],
     },
     {
       href: '/attendance',
       icon: Calendar,
       label: t('nav.attendance'),
       testId: 'nav-attendance',
-      roles: ['admin', 'house_church_pastor'],
+      roles: ['admin', 'group_leader'],
     },
     {
       href: '/prayer',

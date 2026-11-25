@@ -17,7 +17,7 @@ export interface LinkableMember {
   first_name: string | null;
   last_name: string | null;
   email: string | null;
-  house_church_name: string | null;
+  group_name: string | null;
 }
 
 const CREATE_NEW = '__create__';
@@ -36,7 +36,7 @@ export function PendingAccounts({
   const [message, setMessage] = useState<{ kind: 'ok' | 'error'; text: string } | null>(null);
 
   const label = (m: LinkableMember) =>
-    [`${m.first_name ?? ''} ${m.last_name ?? ''}`.trim() || '—', m.email, m.house_church_name].filter(Boolean).join(' · ');
+    [`${m.first_name ?? ''} ${m.last_name ?? ''}`.trim() || '—', m.email, m.group_name].filter(Boolean).join(' · ');
 
   const approve = async (u: PendingUser) => {
     const picked = choice[u.id] ?? u.suggested_member_id ?? '';

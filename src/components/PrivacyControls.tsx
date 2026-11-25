@@ -15,7 +15,7 @@ interface FieldView {
 
 interface Props {
   scope: VisibilityScope;
-  /** House church or member id; omit for 'church' and 'member_self'. */
+  /** Group or member id; omit for 'church' and 'member_self'. */
   id?: string;
   /** Rendered above the table when the viewer may edit this layer. */
   title?: string;
@@ -25,7 +25,7 @@ interface Props {
 const rank = (l: VisibilityLevel) => VISIBILITY_LEVELS.indexOf(l);
 
 /**
- * Directory privacy settings for one layer (church default, a house church,
+ * Directory privacy settings for one layer (church default, a group,
  * a member, or the viewer's own). Each row shows the level in effect and the
  * layer causing it; options looser than the layers above are disabled, since
  * the tightest layer always wins. Renders nothing when the server says the

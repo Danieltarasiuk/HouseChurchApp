@@ -155,7 +155,7 @@ src/
 │   │   ├── dashboard/
 │   │   ├── discipleship/
 │   │   ├── incubator/
-│   │   ├── house-churches/
+│   │   ├── groups/          # "House Churches" in the UI
 │   │   ├── members/
 │   │   ├── attendance/
 │   │   └── prayer/

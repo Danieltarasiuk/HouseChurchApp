@@ -7,13 +7,13 @@ import { useRouter } from 'next/navigation';
 import { useLang } from '@/context/LangContext';
 import { meetingDayLabel } from '@/lib/formatDate';
 import { Plus, Pencil, ChevronDown, ChevronRight } from 'lucide-react';
-import HouseChurchModal from '@/components/HouseChurchModal';
-import { getHCColor, escapeHtml } from '@/lib/map-utils';
+import GroupModal from '@/components/GroupModal';
+import { getGroupColor, escapeHtml } from '@/lib/map-utils';
 import type { MapMarker } from '@/lib/map-utils';
 
 const MapComponent = dynamic(() => import('@/components/MapComponent'), { ssr: false });
 
-interface HouseChurch {
+interface Group {
   id: string;
   name: string;
   description: string | null;
@@ -41,8 +41,8 @@ interface Member {
   id: string;
   first_name: string;
   last_name: string;
-  house_church_id: string | null;
-  house_church_name: string | null;
+  group_id: string | null;
+  group_name: string | null;
   address_street: string | null;
   address_city: string | null;
   address_state: string | null;
@@ -62,31 +62,31 @@ function fmtAddr(street: string | null, city: string | null, state: string | nul
   return [street, city, sz].filter(Boolean).join(', ');
 }
 
-export default function HouseChurchesPage() {
+export default function GroupsPage() {
   const { t } = useLang();
   const router = useRouter();
   const { data: session } = useSession();
   const userRole = (session?.user as { role?: string })?.role;
   const isAdmin = userRole === 'admin';
 
-  const [churches, setChurches] = useState<HouseChurch[]>([]);
+  const [groups, setGroups] = useState<Group[]>([]);
   const [members, setMembers] = useState<Member[]>([]);
   const [campuses, setCampuses] = useState<Campus[]>([]);
   const [loading, setLoading] = useState(true);
   const [showModal, setShowModal] = useState(false);
-  const [editingHC, setEditingHC] = useState<HouseChurch | null>(null);
+  const [editingGroup, setEditingGroup] = useState<Group | null>(null);
   const [message, setMessage] = useState('');
   const [filterCampus, setFilterCampus] = useState<string>('all');
   const [collapsedCampuses, setCollapsedCampuses] = useState<Set<string>>(new Set());
 
   const loadData = () => {
     Promise.all([
-      fetch('/api/house-churches').then((r) => r.json()),
+      fetch('/api/groups').then((r) => r.json()),
       fetch('/api/members').then((r) => r.json()),
     ])
-      .then(([hcData, memData]) => {
-        setChurches(hcData.churches || []);
-        setCampuses(hcData.campuses || []);
+      .then(([groupData, memData]) => {
+        setGroups(groupData.groups || []);
+        setCampuses(groupData.campuses || []);
         setMembers(memData.members || []);
       })
       .catch(() => {})
@@ -95,11 +95,11 @@ export default function HouseChurchesPage() {
 
   useEffect(() => { loadData(); }, []);
 
-  const openCreate = () => { setEditingHC(null); setShowModal(true); setMessage(''); };
-  const openEdit = (hc: HouseChurch) => { setEditingHC(hc); setShowModal(true); setMessage(''); };
+  const openCreate = () => { setEditingGroup(null); setShowModal(true); setMessage(''); };
+  const openEdit = (hc: Group) => { setEditingGroup(hc); setShowModal(true); setMessage(''); };
   const handleModalSaved = () => {
     setShowModal(false);
-    setMessage(editingHC ? t('hc.updated') : t('hc.created'));
+    setMessage(editingGroup ? t('group.updated') : t('group.created'));
     loadData();
   };
 
@@ -113,44 +113,44 @@ export default function HouseChurchesPage() {
 
   const grouped = useMemo(() => {
     const filtered = filterCampus === 'all'
-      ? churches
+      ? groups
       : filterCampus === 'none'
-        ? churches.filter(c => !c.campus_name)
-        : churches.filter(c => c.campus_name === filterCampus);
-    const groups = new Map<string, HouseChurch[]>();
-    for (const church of filtered) {
-      const key = church.campus_name || t('hc.noCampus');
-      if (!groups.has(key)) groups.set(key, []);
-      groups.get(key)!.push(church);
+        ? groups.filter(c => !c.campus_name)
+        : groups.filter(c => c.campus_name === filterCampus);
+    const byCampus = new Map<string, Group[]>();
+    for (const group of filtered) {
+      const key = group.campus_name || t('group.noCampus');
+      if (!byCampus.has(key)) byCampus.set(key, []);
+      byCampus.get(key)!.push(group);
     }
-    return groups;
-  }, [churches, filterCampus, t]);
+    return byCampus;
+  }, [groups, filterCampus, t]);
 
-  const allHCIds = useMemo(() => churches.map(c => c.id).sort(), [churches]);
+  const allGroupIds = useMemo(() => groups.map(c => c.id).sort(), [groups]);
 
   const mapMarkers: MapMarker[] = useMemo(() => {
     const markers: MapMarker[] = [];
-    const pastorLabel = t('hc.pastor');
-    const membersLabel = t('hc.members');
+    const pastorLabel = t('group.pastor');
+    const membersLabel = t('group.members');
 
-    for (const hc of churches) {
+    for (const hc of groups) {
       if (hc.latitude && hc.longitude) {
-        const color = getHCColor(hc.id, allHCIds);
+        const color = getGroupColor(hc.id, allGroupIds);
         markers.push({
-          id: `hc-${hc.id}`,
+          id: `group-${hc.id}`,
           lat: hc.latitude,
           lng: hc.longitude,
-          type: 'house_church',
+          type: 'group',
           color,
           tooltipHtml: `<strong>${escapeHtml(hc.name)}</strong><br/>${escapeHtml(pastorLabel)}: ${escapeHtml(hc.pastor_name || '—')}<br/>${hc.meeting_day ? escapeHtml(meetingDayLabel(t, hc.meeting_day)) : ''} ${escapeHtml(hc.meeting_time)}<br/>${hc.member_count} ${escapeHtml(membersLabel)}`,
         });
       }
     }
 
-    const noHCLabel = t('mem.noHouseChurch');
+    const noGroupLabel = t('mem.noGroup');
     for (const m of members) {
       if (m.latitude && m.longitude) {
-        const color = m.house_church_id ? getHCColor(m.house_church_id, allHCIds) : '#9CA3AF';
+        const color = m.group_id ? getGroupColor(m.group_id, allGroupIds) : '#9CA3AF';
         const addr = fmtAddr(m.address_street, m.address_city, m.address_state, m.address_zip);
         markers.push({
           id: `mem-${m.id}`,
@@ -158,13 +158,13 @@ export default function HouseChurchesPage() {
           lng: m.longitude,
           type: 'member',
           color,
-          tooltipHtml: `<strong>${escapeHtml(`${m.first_name} ${m.last_name}`)}</strong><br/>${escapeHtml(m.house_church_name || noHCLabel)}<br/>${escapeHtml(addr || '—')}`,
+          tooltipHtml: `<strong>${escapeHtml(`${m.first_name} ${m.last_name}`)}</strong><br/>${escapeHtml(m.group_name || noGroupLabel)}<br/>${escapeHtml(addr || '—')}`,
         });
       }
     }
 
     return markers;
-  }, [churches, members, allHCIds, t]);
+  }, [groups, members, allGroupIds, t]);
 
   const emptyMsg = t('map.noLocationsSync');
 
@@ -172,8 +172,8 @@ export default function HouseChurchesPage() {
     return (
       <div>
         <div className="page-header">
-          <h2>{t('hc.title')}</h2>
-          <p>{t('hc.sub')}</p>
+          <h2>{t('group.title')}</h2>
+          <p>{t('group.sub')}</p>
         </div>
         <div style={{ padding: '40px', textAlign: 'center', color: 'var(--text-tertiary)' }}>
           {t('dashboard.loading')}
@@ -186,8 +186,8 @@ export default function HouseChurchesPage() {
     <div>
       <div className="page-header">
         <div>
-          <h2>{t('hc.title')}</h2>
-          <p>{t('hc.sub')}</p>
+          <h2>{t('group.title')}</h2>
+          <p>{t('group.sub')}</p>
         </div>
         <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
           {campuses.length > 0 && (
@@ -197,16 +197,16 @@ export default function HouseChurchesPage() {
               value={filterCampus}
               onChange={(e) => setFilterCampus(e.target.value)}
             >
-              <option value="all">{t('hc.allCampuses')}</option>
+              <option value="all">{t('group.allCampuses')}</option>
               {campuses.map((c) => (
                 <option key={c.pco_campus_id} value={c.campus_name}>{c.campus_name}</option>
               ))}
-              <option value="none">{t('hc.noCampus')}</option>
+              <option value="none">{t('group.noCampus')}</option>
             </select>
           )}
           {isAdmin && (
             <button className="btn btn-primary" onClick={openCreate}>
-              <Plus size={16} /> {t('hc.create')}
+              <Plus size={16} /> {t('group.create')}
             </button>
           )}
         </div>
@@ -219,15 +219,15 @@ export default function HouseChurchesPage() {
       )}
 
       {/* Split layout: list left, map right */}
-      <div className="hc-split-layout">
+      <div className="group-split-layout">
         {/* Left panel — scrollable card list */}
-        <div className="hc-split-list">
-          {churches.length === 0 ? (
+        <div className="group-split-list">
+          {groups.length === 0 ? (
             <div className="card" style={{ padding: '40px', textAlign: 'center' }}>
               <p style={{ color: 'var(--text-tertiary)' }}>{t('common.noResults')}</p>
             </div>
           ) : (
-            Array.from(grouped.entries()).map(([campusName, campusChurches]) => (
+            Array.from(grouped.entries()).map(([campusName, campusGroups]) => (
               <div key={campusName} style={{ marginBottom: '20px' }}>
                 <button
                   onClick={() => toggleCampus(campusName)}
@@ -241,38 +241,38 @@ export default function HouseChurchesPage() {
                   {collapsedCampuses.has(campusName) ? <ChevronRight size={16} /> : <ChevronDown size={16} />}
                   {campusName}
                   <span style={{ fontWeight: 400, color: 'var(--text-tertiary)', fontSize: '12px' }}>
-                    ({campusChurches.length})
+                    ({campusGroups.length})
                   </span>
                 </button>
 
                 {!collapsedCampuses.has(campusName) && (
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-                    {campusChurches.map((church) => {
-                      const color = getHCColor(church.id, allHCIds);
+                    {campusGroups.map((group) => {
+                      const color = getGroupColor(group.id, allGroupIds);
                       return (
                         <div
-                          key={church.id}
-                          className="hc-card"
+                          key={group.id}
+                          className="group-card"
                           style={{ cursor: 'pointer' }}
                           role="button"
                           tabIndex={0}
-                          onClick={() => router.push(`/house-churches/${church.id}`)}
-                          onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); router.push(`/house-churches/${church.id}`); } }}
+                          onClick={() => router.push(`/groups/${group.id}`)}
+                          onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); router.push(`/groups/${group.id}`); } }}
                         >
-                          <div className="hc-card-top">
+                          <div className="group-card-top">
                             <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                               <span style={{ width: '10px', height: '10px', borderRadius: '50%', background: color, flexShrink: 0 }} />
-                              <h3>{church.name}</h3>
+                              <h3>{group.name}</h3>
                             </div>
                             <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
                               <span className="badge badge-member" style={{ fontSize: '11px' }}>
-                                {church.member_count} {t('hc.members')}
+                                {group.member_count} {t('group.members')}
                               </span>
                               {isAdmin && (
                                 <button
                                   className="btn btn-ghost"
                                   style={{ padding: '4px', minWidth: 'auto' }}
-                                  onClick={(e) => { e.stopPropagation(); openEdit(church); }}
+                                  onClick={(e) => { e.stopPropagation(); openEdit(group); }}
                                   title={t('common.edit')}
                                 >
                                   <Pencil size={14} />
@@ -281,12 +281,12 @@ export default function HouseChurchesPage() {
                             </div>
                           </div>
 
-                          <div className="hc-card-meta" style={{ fontSize: '12px' }}>
-                            {church.pastor_name && (
-                              <span><strong>{t('hc.pastor')}:</strong> {church.pastor_name}</span>
+                          <div className="group-card-meta" style={{ fontSize: '12px' }}>
+                            {group.pastor_name && (
+                              <span><strong>{t('group.pastor')}:</strong> {group.pastor_name}</span>
                             )}
-                            {church.meeting_day && (
-                              <span>{meetingDayLabel(t, church.meeting_day)}{church.meeting_time ? ` @ ${church.meeting_time}` : ''}</span>
+                            {group.meeting_day && (
+                              <span>{meetingDayLabel(t, group.meeting_day)}{group.meeting_time ? ` @ ${group.meeting_time}` : ''}</span>
                             )}
                           </div>
                         </div>
@@ -300,14 +300,14 @@ export default function HouseChurchesPage() {
         </div>
 
         {/* Right panel — map */}
-        <div className="hc-split-map">
+        <div className="group-split-map">
           <MapComponent markers={mapMarkers} height="100%" emptyMessage={emptyMsg} />
         </div>
       </div>
 
       {showModal && (
-        <HouseChurchModal
-          houseChurch={editingHC}
+        <GroupModal
+          group={editingGroup}
           members={members}
           campuses={campuses}
           onClose={() => setShowModal(false)}

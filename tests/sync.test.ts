@@ -35,8 +35,8 @@ function seedPco(peopleCount = 5) {
 const members = async () =>
   current.db!.sql(
     `SELECT m.pco_id, m.first_name, m.is_active, m.pco_household_id, m.household_name,
-            m.latitude, m.longitude, m.address_street, hc.name AS hc_name
-     FROM members m LEFT JOIN house_churches hc ON hc.id = m.house_church_id
+            m.latitude, m.longitude, m.address_street, hc.name AS group_name
+     FROM members m LEFT JOIN groups hc ON hc.id = m.group_id
      ORDER BY m.pco_id`
   );
 const byId = async (): Promise<Record<string, Record<string, any>>> =>
@@ -51,7 +51,7 @@ beforeEach(async () => {
 });
 
 describe('good sync', () => {
-  it('reads every page of every endpoint and writes members, house churches and households', async () => {
+  it('reads every page of every endpoint and writes members, groups and households', async () => {
     seedPco(5); // page size 2 -> people span 3 pages, campuses 2, households 2
 
     const result = await runPcoSync('t', NO_GEOCODE);
@@ -61,8 +61,8 @@ describe('good sync', () => {
     expect(result).toMatchObject({ imported: 5, total: 5, campuses: 3, archived: 0 });
     const m = await byId();
     expect(Object.keys(m)).toEqual(['p1', 'p2', 'p3', 'p4', 'p5']);
-    expect(m.p1).toMatchObject({ hc_name: 'North', pco_household_id: 'h1', household_name: 'Household One' });
-    expect(m.p2).toMatchObject({ hc_name: 'South', pco_household_id: 'h1' });
+    expect(m.p1).toMatchObject({ group_name: 'North', pco_household_id: 'h1', household_name: 'Household One' });
+    expect(m.p2).toMatchObject({ group_name: 'South', pco_household_id: 'h1' });
     expect(m.p4).toMatchObject({ pco_household_id: null });
     expect(pco.calls.filter((u) => u.includes('/people?')).length).toBe(3);
   });
@@ -100,17 +100,17 @@ describe.each(FAULTS)('%s', (_label, fault, page, code) => {
     pco.households = [{ id: 'h9', name: 'Moved', people: ['p1', 'p2', 'p3'] }, { id: 'h8', name: 'Other', people: [] }, { id: 'h7', name: 'Third', people: [] }]; // 2 pages
   });
 
-  it('campuses: leaves house churches and every house_church_id alone', async () => {
+  it('campuses: leaves groups and every group_id alone', async () => {
     pco.faults.campuses = { page, fault };
     const result = await runPcoSync('t', NO_GEOCODE);
 
     expect(result.status).toBe('warnings');
     expect(result.warnings).toEqual([expect.objectContaining({ step: 'campuses', code })]);
-    const hcs = await current.db!.sql('SELECT name FROM house_churches ORDER BY name');
+    const hcs = await current.db!.sql('SELECT name FROM groups ORDER BY name');
     expect(hcs.map((h) => h.name)).toEqual(['North', 'South', 'West']);
     const m = await byId();
-    expect(m.p1.hc_name).toBe('North'); // PCO now says c3, but campuses were not trusted
-    expect(m.p2.hc_name).toBe('South');
+    expect(m.p1.group_name).toBe('North'); // PCO now says c3, but campuses were not trusted
+    expect(m.p2.group_name).toBe('South');
     expect(m.p1.first_name).toBe('First1X'); // people still synced
   });
 

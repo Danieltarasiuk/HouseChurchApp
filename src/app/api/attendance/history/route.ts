@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { sql } from '@/lib/db';
 import { monthsAgoInChurchTz } from '@/lib/churchTime';
-import { requireViewer, forbidden, pastorsHc, leaderHcScope, LEADER_ROLES } from '@/lib/authz';
+import { requireViewer, forbidden, leadsGroup, leaderGroupScope, LEADER_ROLES } from '@/lib/authz';
 
 /** Normalize a Postgres DATE value (Date object or ISO string) to 'YYYY-MM-DD' */
 function toDateStr(v: unknown): string {
@@ -13,20 +13,20 @@ const VALID_MONTHS = [1, 2, 3, 4];
 export async function GET(req: NextRequest) {
   const { viewer, error } = await requireViewer({ roles: LEADER_ROLES });
   if (error) return error;
-  // null = all house churches (admin); a pastor gets exactly their own.
-  const scope = leaderHcScope(viewer);
+  // null = all groups (admin); a pastor gets exactly their own.
+  const scope = leaderGroupScope(viewer);
 
   const params = req.nextUrl.searchParams;
   const attendanceType = params.get('attendance_type') || 'sunday_service';
-  if (!['sunday_service', 'house_church'].includes(attendanceType)) {
+  if (!['sunday_service', 'group'].includes(attendanceType)) {
     return NextResponse.json({ error: 'Invalid attendance_type' }, { status: 400 });
   }
 
   const monthsRaw = parseInt(params.get('months') || '2', 10);
   const months = VALID_MONTHS.includes(monthsRaw) ? monthsRaw : 2;
 
-  const houseChurchId = params.get('house_church_id') || null;
-  if (scope && houseChurchId && !pastorsHc(viewer, houseChurchId)) return forbidden();
+  const groupId = params.get('group_id') || null;
+  if (scope && groupId && !leadsGroup(viewer, groupId)) return forbidden();
 
   // Start of the window: N months before today in the church's calendar
   // (the UTC date is already tomorrow on Sunday evenings in Miami).
@@ -37,29 +37,29 @@ export async function GET(req: NextRequest) {
       `SELECT date FROM attendance_sessions
        WHERE attendance_type = $1
          AND date >= $2
-         AND ($3::uuid IS NULL OR house_church_id = $3::uuid)
-         AND ($1 <> 'house_church' OR $4::text[] IS NULL OR house_church_id::text = ANY($4::text[]))
+         AND ($3::uuid IS NULL OR group_id = $3::uuid)
+         AND ($1 <> 'group' OR $4::text[] IS NULL OR group_id::text = ANY($4::text[]))
        ORDER BY date`,
-      [attendanceType, startDate, houseChurchId, scope]
+      [attendanceType, startDate, groupId, scope]
     );
 
     const recordRows = await sql(
       `SELECT member_id::text, date FROM attendance
        WHERE attendance_type = $1
          AND date >= $2
-         AND ($3::uuid IS NULL OR house_church_id = $3::uuid)
+         AND ($3::uuid IS NULL OR group_id = $3::uuid)
          AND present = true
-         AND ($4::text[] IS NULL OR member_id IN (SELECT id FROM members WHERE house_church_id::text = ANY($4::text[])))`,
-      [attendanceType, startDate, houseChurchId, scope]
+         AND ($4::text[] IS NULL OR member_id IN (SELECT id FROM members WHERE group_id::text = ANY($4::text[])))`,
+      [attendanceType, startDate, groupId, scope]
     );
 
     let meetingDay: string | null = null;
-    if (houseChurchId) {
-      const hcRows = await sql(
-        'SELECT meeting_day FROM house_churches WHERE id = $1',
-        [houseChurchId]
+    if (groupId) {
+      const groupRows = await sql(
+        'SELECT meeting_day FROM groups WHERE id = $1',
+        [groupId]
       );
-      meetingDay = hcRows[0]?.meeting_day || null;
+      meetingDay = groupRows[0]?.meeting_day || null;
     }
 
 
@@ -70,8 +70,8 @@ export async function GET(req: NextRequest) {
         member_id: r.member_id,
         date: toDateStr(r.date),
       })),
-      // So the client can default its house church selector to the caller's own.
-      my_house_church_ids: viewer.pastoredHcIds,
+      // So the client can default its group selector to the caller's own.
+      my_group_ids: viewer.ledGroupIds,
     });
   } catch (error) {
     console.error('Attendance history error:', error);

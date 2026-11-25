@@ -14,6 +14,9 @@
 --     present in the live database. Rather than silently claim otherwise,
 --     they are listed as commented-out DDL at the bottom of this file.
 --
+-- Changes to the live database are numbered files in db/migrations/ (each
+-- with a .down.sql); this file is updated in the same commit to match.
+--
 -- Table order matters: each table is defined after everything it references.
 
 -- Users table (for NextAuth)
@@ -22,7 +25,7 @@ CREATE TABLE IF NOT EXISTS users (
   name VARCHAR(255) NOT NULL,
   email VARCHAR(255) UNIQUE NOT NULL,
   password_hash VARCHAR(255),  -- NULL for Google-only users
-  role VARCHAR(50) DEFAULT 'member' CHECK (role IN ('member', 'house_church_pastor', 'admin')),
+  role VARCHAR(50) DEFAULT 'member' CHECK (role IN ('member', 'group_leader', 'admin')),
   language VARCHAR(2) DEFAULT 'en' CHECK (language IN ('en', 'es')),
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
   updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
@@ -34,12 +37,12 @@ CREATE TABLE IF NOT EXISTS users (
   CONSTRAINT users_pending_is_member_check CHECK (status = 'active' OR role = 'member')
 );
 
--- House Churches
+-- Groups (called "house churches" in the CityChurch UI)
 -- pastor_id / host_id / trainee_id reference members(id). The constraints are
 -- added by ALTER TABLE further down rather than inline, because members is
--- defined after this table and itself references house_churches — declaring
+-- defined after this table and itself references groups — declaring
 -- them here would fail with 'relation "members" does not exist'.
-CREATE TABLE IF NOT EXISTS house_churches (
+CREATE TABLE IF NOT EXISTS groups (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   name VARCHAR(255) NOT NULL,
   description TEXT,
@@ -61,12 +64,12 @@ CREATE TABLE IF NOT EXISTS house_churches (
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
--- Members (linked to house churches)
+-- Members (linked to groups)
 -- NOTE: members.role is a different vocabulary from users.role.
 CREATE TABLE IF NOT EXISTS members (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id UUID REFERENCES users(id),
-  house_church_id UUID REFERENCES house_churches(id),
+  group_id UUID REFERENCES groups(id),
   first_name TEXT,
   last_name TEXT,
   email TEXT,
@@ -89,34 +92,34 @@ CREATE TABLE IF NOT EXISTS members (
   attendance_note TEXT             -- app-owned; the PCO sync never touches it
 );
 
--- House church leadership references, added now that members exists.
+-- Group leadership references, added now that members exists.
 -- DO $$ guards keep this file re-runnable: ADD CONSTRAINT has no IF NOT EXISTS.
 DO $$ BEGIN
-  ALTER TABLE house_churches ADD CONSTRAINT house_churches_pastor_id_fkey
+  ALTER TABLE groups ADD CONSTRAINT groups_pastor_id_fkey
     FOREIGN KEY (pastor_id) REFERENCES members(id);
 EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 DO $$ BEGIN
-  ALTER TABLE house_churches ADD CONSTRAINT house_churches_host_id_fkey
+  ALTER TABLE groups ADD CONSTRAINT groups_host_id_fkey
     FOREIGN KEY (host_id) REFERENCES members(id);
 EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 DO $$ BEGIN
-  ALTER TABLE house_churches ADD CONSTRAINT house_churches_trainee_id_fkey
+  ALTER TABLE groups ADD CONSTRAINT groups_trainee_id_fkey
     FOREIGN KEY (trainee_id) REFERENCES members(id);
 EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
 -- Attendance tracking (only rows for members who were present are kept)
 CREATE TABLE IF NOT EXISTS attendance (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  house_church_id UUID REFERENCES house_churches(id),
+  group_id UUID REFERENCES groups(id),
   member_id UUID REFERENCES members(id),
   date DATE NOT NULL,
-  attendance_type VARCHAR(20) CHECK (attendance_type IN ('sunday_service', 'house_church')),
+  attendance_type VARCHAR(20) CHECK (attendance_type IN ('sunday_service', 'group')),
   present BOOLEAN DEFAULT true,
   notes TEXT,
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
--- Attendance sessions: records that attendance WAS TAKEN for a date/type/HC,
+-- Attendance sessions: records that attendance WAS TAKEN for a date/type/group,
 -- independently of who was present. Without this, "never recorded" and
 -- "recorded but nobody came" are indistinguishable, since the attendance
 -- table only stores present rows.
@@ -124,8 +127,8 @@ CREATE TABLE IF NOT EXISTS attendance_sessions (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   date DATE NOT NULL,
   attendance_type VARCHAR(20) NOT NULL
-    CHECK (attendance_type IN ('sunday_service', 'house_church')),
-  house_church_id UUID REFERENCES house_churches(id),
+    CHECK (attendance_type IN ('sunday_service', 'group')),
+  group_id UUID REFERENCES groups(id),
   recorded_by UUID REFERENCES users(id),
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
@@ -175,12 +178,12 @@ CREATE TABLE IF NOT EXISTS prayer_requests (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id UUID REFERENCES users(id),
   member_id UUID REFERENCES members(id),
-  house_church_id UUID REFERENCES house_churches(id),
+  group_id UUID REFERENCES groups(id),
   title VARCHAR(255) NOT NULL,
   description TEXT,
   is_private BOOLEAN DEFAULT false,
   visibility VARCHAR(20) NOT NULL DEFAULT 'public'
-    CHECK (visibility IN ('public', 'house_church', 'private')),
+    CHECK (visibility IN ('public', 'group', 'private')),
   status VARCHAR(20) DEFAULT 'active' CHECK (status IN ('active', 'answered')),
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
   updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
@@ -246,7 +249,7 @@ CREATE TABLE IF NOT EXISTS calendar_events (
   title_en         TEXT NOT NULL,
   title_es         TEXT,
   category         TEXT NOT NULL CHECK (category IN (
-                     'worship_night','house_church','men_women_marriage','brunch',
+                     'worship_night','group','men_women_marriage','brunch',
                      'english_gathering','special_event','advent','holiday','school','reminder')),
   start_date       DATE NOT NULL,
   end_date         DATE NOT NULL,            -- INCLUSIVE last day
@@ -267,7 +270,7 @@ CREATE TABLE IF NOT EXISTS calendar_events (
 
 -- Member directory visibility (see src/lib/directory.ts). One row per layer
 -- setting; a missing row means "no restriction from this layer". scope_id is
--- NULL for the church default, else a house_churches.id ('house_church') or
+-- NULL for the church default, else a groups.id ('group') or
 -- members.id ('member', 'member_self'); it is polymorphic, so no foreign key.
 -- NULLS NOT DISTINCT keeps the church default to one row per field.
 CREATE TABLE IF NOT EXISTS directory_visibility (
@@ -279,7 +282,7 @@ CREATE TABLE IF NOT EXISTS directory_visibility (
   updated_by  UUID REFERENCES users(id) ON DELETE SET NULL,
   updated_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
   CONSTRAINT directory_visibility_scope_check
-    CHECK (scope IN ('church', 'house_church', 'member', 'member_self')),
+    CHECK (scope IN ('church', 'group', 'member', 'member_self')),
   CONSTRAINT directory_visibility_field_check
     CHECK (field IN ('phone', 'email', 'address', 'birthday', 'household')),
   CONSTRAINT directory_visibility_level_check
@@ -292,24 +295,24 @@ CREATE TABLE IF NOT EXISTS directory_visibility (
 
 -- Indexes present in the live database
 CREATE INDEX IF NOT EXISTS calendar_events_start_idx ON calendar_events (start_date);
-CREATE INDEX IF NOT EXISTS idx_members_house_church ON members(house_church_id);
+CREATE INDEX IF NOT EXISTS idx_members_group ON members(group_id);
 CREATE INDEX IF NOT EXISTS idx_members_user_id ON members(user_id);
 CREATE INDEX IF NOT EXISTS idx_attendance_date ON attendance(date);
-CREATE INDEX IF NOT EXISTS idx_attendance_house_church ON attendance(house_church_id);
+CREATE INDEX IF NOT EXISTS idx_attendance_group ON attendance(group_id);
 CREATE INDEX IF NOT EXISTS idx_attendance_member ON attendance(member_id);
 CREATE INDEX IF NOT EXISTS idx_attendance_type ON attendance(attendance_type);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_attendance_member_date_type ON attendance(member_id, date, attendance_type);
--- COALESCE is required: a NULL house_church_id (sunday_service) would never
+-- COALESCE is required: a NULL group_id (sunday_service) would never
 -- conflict with another NULL, so plain column uniqueness would not dedupe.
 CREATE UNIQUE INDEX IF NOT EXISTS idx_attendance_sessions_unique
   ON attendance_sessions (
     date,
     attendance_type,
-    COALESCE(house_church_id, '00000000-0000-0000-0000-000000000000'::uuid)
+    COALESCE(group_id, '00000000-0000-0000-0000-000000000000'::uuid)
   );
 CREATE INDEX IF NOT EXISTS idx_discipleship_user ON discipleship_progress(user_id);
 CREATE INDEX IF NOT EXISTS idx_incubator_user ON incubator_progress(user_id);
-CREATE INDEX IF NOT EXISTS idx_prayer_house_church ON prayer_requests(house_church_id);
+CREATE INDEX IF NOT EXISTS idx_prayer_group ON prayer_requests(group_id);
 CREATE INDEX IF NOT EXISTS idx_prayer_status ON prayer_requests(status);
 CREATE INDEX IF NOT EXISTS idx_prayer_user ON prayer_requests(user_id);
 CREATE INDEX IF NOT EXISTS idx_pastoral_meetings_member ON pastoral_meetings(member_id);

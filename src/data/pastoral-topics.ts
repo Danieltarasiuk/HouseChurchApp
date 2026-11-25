@@ -1,3 +1,5 @@
+import { GROUP_LABEL, withGroupLabel } from '@/lib/groupLabel';
+
 export interface PastoralTopic {
   key: string;
   label: { en: string; es: string };
@@ -27,19 +29,19 @@ export const PASTORAL_TOPICS: PastoralTopic[] = [
     verses: ['Hebrews 10:24-25', 'Psalm 122:1', 'Acts 2:42'],
   },
   {
-    key: 'house_church',
-    label: { en: 'House Church', es: 'Iglesia en Casa' },
+    key: 'group',
+    label: { en: GROUP_LABEL.en.one, es: GROUP_LABEL.es.one },
     description: {
       en: 'Are they engaged in their smaller community?',
       es: '¿Están involucrados en su comunidad más pequeña?',
     },
     questions: {
       en: [
-        'Do you feel genuinely known by the people in your house church?',
+        withGroupLabel('Do you feel genuinely known by the people in your {group}?', 'en'),
         'Is there anyone you are growing closer to? Anyone you are concerned about?',
       ],
       es: [
-        '¿Sientes que las personas en tu iglesia en casa te conocen genuinamente?',
+        withGroupLabel('¿Sientes que las personas en tu {group} te conocen genuinamente?', 'es'),
         '¿Hay alguien con quien estés creciendo más cerca? ¿Alguien que te preocupe?',
       ],
     },

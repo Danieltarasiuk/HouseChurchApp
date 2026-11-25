@@ -9,7 +9,7 @@ export async function GET() {
   }
 
   const userRole = (session.user as { role?: string }).role;
-  if (userRole !== 'admin' && userRole !== 'house_church_pastor') {
+  if (userRole !== 'admin' && userRole !== 'group_leader') {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
   }
 
@@ -25,16 +25,16 @@ export async function GET() {
          GROUP BY member_id`
       );
     } else {
-      // HC pastors see red flags they created OR for members in their HCs
-      const myHcIds = await sql(
-        `SELECT hc.id FROM house_churches hc
+      // group leaders see red flags they created OR for members in their groups
+      const myGroupIds = await sql(
+        `SELECT hc.id FROM groups hc
          JOIN members m ON hc.pastor_id = m.id
          WHERE m.user_id = $1`,
         [session.user.id]
       );
-      const hcIds = myHcIds.map((r: Record<string, string>) => r.id);
+      const groupIds = myGroupIds.map((r: Record<string, string>) => r.id);
 
-      if (hcIds.length === 0) {
+      if (groupIds.length === 0) {
         result = await sql(
           `SELECT member_id::text, COUNT(*)::int AS red_count
            FROM member_flags
@@ -43,15 +43,15 @@ export async function GET() {
           [session.user.id]
         );
       } else {
-        const placeholders = hcIds.map((_: string, i: number) => `$${i + 2}`).join(',');
+        const placeholders = groupIds.map((_: string, i: number) => `$${i + 2}`).join(',');
         result = await sql(
           `SELECT mf.member_id::text, COUNT(*)::int AS red_count
            FROM member_flags mf
            LEFT JOIN members mem ON mf.member_id = mem.id
            WHERE mf.flag_color = 'red' AND mf.is_resolved = false
-             AND (mf.created_by = $1 OR mem.house_church_id IN (${placeholders}))
+             AND (mf.created_by = $1 OR mem.group_id IN (${placeholders}))
            GROUP BY mf.member_id`,
-          [session.user.id, ...hcIds]
+          [session.user.id, ...groupIds]
         );
       }
     }

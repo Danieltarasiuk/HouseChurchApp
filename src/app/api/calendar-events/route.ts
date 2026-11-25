@@ -14,7 +14,7 @@ export const maxDuration = 30;
 
 /** GET ?from=YYYY-MM-DD&to=YYYY-MM-DD — events overlapping the inclusive range. */
 export async function GET(req: NextRequest) {
-  const guard = await requireCalendarRole(['admin', 'house_church_pastor']);
+  const guard = await requireCalendarRole(['admin', 'group_leader']);
   if (!guard.ok) return guard.response;
 
   const from = req.nextUrl.searchParams.get('from');

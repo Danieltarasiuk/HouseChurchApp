@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server';
 import { auth } from '@/lib/auth';
 import { sql } from '@/lib/db';
 
-const VALID_ROLES = ['member', 'house_church_pastor', 'admin'];
+const VALID_ROLES = ['member', 'group_leader', 'admin'];
 
 export async function GET() {
   const session = await auth();
@@ -31,8 +31,8 @@ export async function GET() {
     );
     // Members an approval can link to: active and not linked to an account.
     const linkableMembers = await sql(
-      `SELECT m.id, m.first_name, m.last_name, m.email, hc.name AS house_church_name
-       FROM members m LEFT JOIN house_churches hc ON hc.id = m.house_church_id
+      `SELECT m.id, m.first_name, m.last_name, m.email, hc.name AS group_name
+       FROM members m LEFT JOIN groups hc ON hc.id = m.group_id
        WHERE m.user_id IS NULL AND m.is_active = true
        ORDER BY m.first_name, m.last_name`
     );

@@ -42,13 +42,13 @@ interface LastSync {
   createdAt: string;
 }
 
-const ROLES = ['member', 'house_church_pastor', 'admin'] as const;
+const ROLES = ['member', 'group_leader', 'admin'] as const;
 
 const roleBadgeClass = (role: string) => {
   switch (role) {
     case 'admin':
       return 'badge badge-pastor';
-    case 'house_church_pastor':
+    case 'group_leader':
       return 'badge badge-leader';
     default:
       return 'badge badge-member';
@@ -284,8 +284,8 @@ function SettingsContent() {
           .replace('{archived}', String(data.archived || 0))
           .replace('{campuses}', String(data.campuses || 0))
           .replace('{total}', String(data.total))
-        + (data.houseChurchesDeactivated
-          ? ' ' + t('settings.pcoHcDeactivated').replace('{count}', String(data.houseChurchesDeactivated))
+        + (data.groupsDeactivated
+          ? ' ' + t('settings.pcoGroupsDeactivated').replace('{count}', String(data.groupsDeactivated))
           : '')
       );
       setTimeout(() => setPcoResult(''), 8000);

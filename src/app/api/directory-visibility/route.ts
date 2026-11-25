@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { sql } from '@/lib/db';
-import { requireViewer, forbidden, isAdmin, pastorsHc, type Viewer } from '@/lib/authz';
+import { requireViewer, forbidden, isAdmin, leadsGroup, type Viewer } from '@/lib/authz';
 import {
   DIRECTORY_FIELDS, isField, isLevel, isScope, layerView, loadVisibilitySettings,
   type VisibilityScope,
@@ -10,7 +10,7 @@ import {
  * One layer of the member directory visibility settings.
  *
  *   GET ?scope=church
- *   GET ?scope=house_church&id=<house church id>
+ *   GET ?scope=group&id=<group id>
  *   GET ?scope=member&id=<member id>
  *   GET ?scope=member_self            (the viewer's own member)
  *     -> { scope, id, fields: { <field>: { value, effective, ceiling } } }
@@ -19,12 +19,12 @@ import {
  *
  * Who may read and change each layer:
  *   church        admins
- *   house_church  admins, and that house church's pastor
- *   member        admins, and the pastor of that member's house church
+ *   group  admins, and that group's pastor
+ *   member        admins, and the pastor of that member's group
  *   member_self   only the member themselves
  */
 
-type Target = { scopeId: string | null; houseChurchId: string | null; memberId: string | null };
+type Target = { scopeId: string | null; groupId: string | null; memberId: string | null };
 
 async function resolveTarget(
   viewer: Viewer,
@@ -32,29 +32,29 @@ async function resolveTarget(
   id: string | null
 ): Promise<{ target: Target } | { error: NextResponse }> {
   if (scope === 'church') {
-    return isAdmin(viewer) ? { target: { scopeId: null, houseChurchId: null, memberId: null } } : { error: forbidden() };
+    return isAdmin(viewer) ? { target: { scopeId: null, groupId: null, memberId: null } } : { error: forbidden() };
   }
   if (scope === 'member_self') {
     if (!viewer.memberId) {
       return { error: NextResponse.json({ error: 'No member record for this account' }, { status: 404 }) };
     }
-    return { target: { scopeId: viewer.memberId, houseChurchId: viewer.houseChurchId, memberId: viewer.memberId } };
+    return { target: { scopeId: viewer.memberId, groupId: viewer.groupId, memberId: viewer.memberId } };
   }
   if (!id) return { error: NextResponse.json({ error: 'id required' }, { status: 400 }) };
 
-  if (scope === 'house_church') {
-    const rows = await sql('SELECT id::text FROM house_churches WHERE id::text = $1', [id]);
+  if (scope === 'group') {
+    const rows = await sql('SELECT id::text FROM groups WHERE id::text = $1', [id]);
     if (rows.length === 0) return { error: NextResponse.json({ error: 'Not found' }, { status: 404 }) };
-    if (!isAdmin(viewer) && !pastorsHc(viewer, id)) return { error: forbidden() };
-    return { target: { scopeId: id, houseChurchId: id, memberId: null } };
+    if (!isAdmin(viewer) && !leadsGroup(viewer, id)) return { error: forbidden() };
+    return { target: { scopeId: id, groupId: id, memberId: null } };
   }
 
   // scope === 'member'
-  const rows = await sql('SELECT id::text, house_church_id::text FROM members WHERE id::text = $1', [id]);
+  const rows = await sql('SELECT id::text, group_id::text FROM members WHERE id::text = $1', [id]);
   if (rows.length === 0) return { error: NextResponse.json({ error: 'Not found' }, { status: 404 }) };
-  const hcId: string | null = rows[0].house_church_id ?? null;
-  if (!isAdmin(viewer) && !pastorsHc(viewer, hcId)) return { error: forbidden() };
-  return { target: { scopeId: id, houseChurchId: hcId, memberId: id } };
+  const groupId: string | null = rows[0].group_id ?? null;
+  if (!isAdmin(viewer) && !leadsGroup(viewer, groupId)) return { error: forbidden() };
+  return { target: { scopeId: id, groupId, memberId: id } };
 }
 
 async function describe(scope: VisibilityScope, target: Target) {

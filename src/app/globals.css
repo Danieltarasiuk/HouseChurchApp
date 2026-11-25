@@ -721,15 +721,15 @@ tr:hover td {
 .inc-eval-item { margin-bottom: 16px; }
 .inc-eval-question { font-size: 14px; line-height: 1.6; color: var(--text-primary); margin-bottom: 8px; }
 
-/* House Churches Grid */
-.hc-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 16px; }
-.hc-card { background: var(--surface); border-radius: var(--radius-md); padding: 24px; border: 1px solid var(--border); cursor: pointer; transition: all 0.2s; }
-.hc-card:hover { box-shadow: var(--shadow-lg); transform: translateY(-1px); }
-.hc-card-top { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 16px; }
-.hc-card h3 { font-size: 17px; font-weight: 700; color: var(--text-primary); letter-spacing: -0.2px; }
-.hc-card p { font-size: 13px; color: var(--text-secondary); margin-top: 3px; line-height: 1.4; }
-.hc-card-meta { display: flex; gap: 20px; font-size: 13px; color: var(--text-tertiary); padding-top: 14px; border-top: 1px solid var(--border-light, var(--border)); }
-.hc-card-meta strong { color: var(--text-primary); }
+/* Groups Grid */
+.group-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 16px; }
+.group-card { background: var(--surface); border-radius: var(--radius-md); padding: 24px; border: 1px solid var(--border); cursor: pointer; transition: all 0.2s; }
+.group-card:hover { box-shadow: var(--shadow-lg); transform: translateY(-1px); }
+.group-card-top { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 16px; }
+.group-card h3 { font-size: 17px; font-weight: 700; color: var(--text-primary); letter-spacing: -0.2px; }
+.group-card p { font-size: 13px; color: var(--text-secondary); margin-top: 3px; line-height: 1.4; }
+.group-card-meta { display: flex; gap: 20px; font-size: 13px; color: var(--text-tertiary); padding-top: 14px; border-top: 1px solid var(--border-light, var(--border)); }
+.group-card-meta strong { color: var(--text-primary); }
 
 /* Incubator module body */
 .inc-module-body { margin-top: 20px; padding: 18px 20px; background: rgba(255,255,255,0.5); border-radius: var(--radius-md); border: 1px solid rgba(0,0,0,0.07); }
@@ -893,19 +893,19 @@ tr:hover td {
   max-width: 200px;
 }
 
-/* HC split layout (list + map) */
-.hc-split-layout {
+/* group split layout (list + map) */
+.group-split-layout {
   display: flex;
   gap: 20px;
   min-height: calc(100vh - 120px);
 }
-.hc-split-list {
+.group-split-list {
   width: 40%;
   overflow-y: auto;
   max-height: calc(100vh - 120px);
   padding-right: 4px;
 }
-.hc-split-map {
+.group-split-map {
   width: 60%;
   position: sticky;
   top: 0;
@@ -915,21 +915,21 @@ tr:hover td {
 }
 
 @media (max-width: 768px) {
-  .hc-grid { grid-template-columns: 1fr; }
+  .group-grid { grid-template-columns: 1fr; }
   th.col-hide-mobile, td.col-hide-mobile { display: none; }
 
-  /* HC split: stack vertically on mobile */
-  .hc-split-layout {
+  /* group split: stack vertically on mobile */
+  .group-split-layout {
     flex-direction: column-reverse;
     min-height: auto;
   }
-  .hc-split-list {
+  .group-split-list {
     width: 100%;
     max-height: none;
     overflow-y: visible;
     padding-right: 0;
   }
-  .hc-split-map {
+  .group-split-map {
     width: 100%;
     position: relative;
     height: 300px;
@@ -981,31 +981,31 @@ tr:hover td {
   }
 }
 
-/* HC detail page: full-width override — same pattern as members page */
-.main-content:has(.hc-detail-page) {
+/* group detail page: full-width override — same pattern as members page */
+.main-content:has(.group-detail-page) {
   max-width: none;
   overflow-x: hidden;
 }
-.hc-detail-page .hc-detail-card-wrap,
-.hc-detail-page .hc-detail-map-wrap,
-.hc-detail-page .hc-detail-table-wrap {
+.group-detail-page .group-detail-card-wrap,
+.group-detail-page .group-detail-map-wrap,
+.group-detail-page .group-detail-table-wrap {
   margin-left: -40px;
   margin-right: -40px;
 }
-.hc-detail-page .hc-detail-table-wrap {
+.group-detail-page .group-detail-table-wrap {
   border-radius: 0;
 }
 
 @media (max-width: 768px) {
-  .hc-detail-page {
+  .group-detail-page {
     margin-left: 0;
     margin-right: 0;
     padding-left: 0;
     padding-right: 0;
   }
-  .hc-detail-page .hc-detail-card-wrap,
-  .hc-detail-page .hc-detail-map-wrap,
-  .hc-detail-page .hc-detail-table-wrap {
+  .group-detail-page .group-detail-card-wrap,
+  .group-detail-page .group-detail-map-wrap,
+  .group-detail-page .group-detail-table-wrap {
     margin-left: 0;
     margin-right: 0;
   }

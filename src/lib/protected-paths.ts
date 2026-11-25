@@ -21,7 +21,7 @@ export const PROTECTED_PATHS = [
   '/dashboard',
   '/discipleship',
   '/incubator',
-  '/house-churches',
+  '/groups',
   '/members',
   '/attendance',
   '/prayer',

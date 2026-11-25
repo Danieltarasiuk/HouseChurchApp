@@ -8,7 +8,7 @@ import { GiveLink } from '@/components/GiveLink';
 import { GIVING_URL } from '@/lib/giving';
 
 interface DashboardData {
-  churchCount: number;
+  groupCount: number;
   memberCount: number;
   prayerCount: number;
   recentPrayers: { id: string; title: string; status: string; created_at: string; requester_name: string | null }[];
@@ -31,7 +31,7 @@ export default function DashboardPage() {
       .catch((err) => {
         if (err.name !== 'AbortError') {
           setError(true);
-          setData({ churchCount: 0, memberCount: 0, prayerCount: 0, recentPrayers: [] });
+          setData({ groupCount: 0, memberCount: 0, prayerCount: 0, recentPrayers: [] });
         }
       });
 
@@ -63,8 +63,8 @@ export default function DashboardPage() {
 
       <div className="stats-grid">
         <div className="stat-card">
-          <div className="stat-label">{t('dashboard.activeChurches')}</div>
-          <div className="stat-value">{loading ? '—' : data.churchCount}</div>
+          <div className="stat-label">{t('dashboard.activeGroups')}</div>
+          <div className="stat-value">{loading ? '—' : data.groupCount}</div>
         </div>
         <div className="stat-card">
           <div className="stat-label">{t('dashboard.totalMembers')}</div>

@@ -218,23 +218,23 @@ describe('deleted campuses', () => {
     vi.stubGlobal('fetch', fakeFetch(pco));
     return pco;
   };
-  const activeHcs = async () =>
-    (await sql(`SELECT name FROM house_churches WHERE pco_campus_id IS NOT NULL AND is_active ORDER BY name`)).map((r) => r.name);
+  const activeGroups = async () =>
+    (await sql(`SELECT name FROM groups WHERE pco_campus_id IS NOT NULL AND is_active ORDER BY name`)).map((r) => r.name);
 
-  it('deactivates their house churches after a complete campuses fetch, and counts them', async () => {
+  it('deactivates their groups after a complete campuses fetch, and counts them', async () => {
     const pco = seedPco();
     const { runPcoSync } = await import('@/lib/pco');
     await runPcoSync('t', NO_GEOCODE);
-    expect(await activeHcs()).toEqual(['North', 'South']);
+    expect(await activeGroups()).toEqual(['North', 'South']);
 
     pco.campuses = [{ id: 'c1', name: 'North' }];
     const result = await runPcoSync('t', NO_GEOCODE);
-    expect(result.houseChurchesDeactivated).toBe(1);
-    expect(await activeHcs()).toEqual(['North']);
+    expect(result.groupsDeactivated).toBe(1);
+    expect(await activeGroups()).toEqual(['North']);
 
     pco.campuses.push({ id: 'c2', name: 'South' }); // it comes back
-    expect((await runPcoSync('t', NO_GEOCODE)).houseChurchesDeactivated).toBe(0);
-    expect(await activeHcs()).toEqual(['North', 'South']);
+    expect((await runPcoSync('t', NO_GEOCODE)).groupsDeactivated).toBe(0);
+    expect(await activeGroups()).toEqual(['North', 'South']);
   });
 
   it.each(['500', 'truncate', 'empty'] as const)('deactivates nothing when the campuses fetch fails (%s)', async (fault) => {
@@ -245,15 +245,15 @@ describe('deleted campuses', () => {
     pco.pageSize = 1;
     pco.faults.campuses = { page: fault === '500' ? 1 : 0, fault }; // truncate: no next link after page 1
     const result = await runPcoSync('t', NO_GEOCODE);
-    expect(result.houseChurchesDeactivated).toBe(0);
-    expect(await activeHcs()).toEqual(['North', 'South']);
+    expect(result.groupsDeactivated).toBe(0);
+    expect(await activeGroups()).toEqual(['North', 'South']);
   });
 
-  it('never touches house churches created in the app (no campus)', async () => {
+  it('never touches groups created in the app (no campus)', async () => {
     seedPco();
     const { runPcoSync } = await import('@/lib/pco');
     await runPcoSync('t', NO_GEOCODE);
-    const manual = await sql(`SELECT is_active FROM house_churches WHERE pco_campus_id IS NULL`);
-    expect(manual.every((r) => r.is_active)).toBe(true); // HC A / HC B fixtures
+    const manual = await sql(`SELECT is_active FROM groups WHERE pco_campus_id IS NULL`);
+    expect(manual.every((r) => r.is_active)).toBe(true); // group A / group B fixtures
   });
 });

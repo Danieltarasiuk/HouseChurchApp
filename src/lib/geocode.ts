@@ -130,10 +130,10 @@ export async function geocodeMembersWithoutCoords(opts: GeocodeBatchOptions = {}
 }
 
 /**
- * Fire-and-forget geocode for a house church address.
- * Updates the house_churches row with lat/lng.
+ * Fire-and-forget geocode for a group address.
+ * Updates the groups row with lat/lng.
  */
-export function geocodeHouseChurchAsync(hcId: string, street: string, city: string, state: string, zip: string): void {
+export function geocodeGroupAsync(groupId: string, street: string, city: string, state: string, zip: string): void {
   const address = buildGeocodingAddress(street, city, state, zip);
   if (!address) return;
 
@@ -142,25 +142,25 @@ export function geocodeHouseChurchAsync(hcId: string, street: string, city: stri
     .then(async (coords) => {
       if (coords) {
         await sql(
-          'UPDATE house_churches SET latitude = $1, longitude = $2 WHERE id = $3',
-          [coords.lat, coords.lng, hcId]
+          'UPDATE groups SET latitude = $1, longitude = $2 WHERE id = $3',
+          [coords.lat, coords.lng, groupId]
         );
       }
     })
     .catch((err) => {
-      console.error('HC geocode error:', err);
+      console.error('Group geocode error:', err);
     });
 }
 
 /**
- * Batch geocode house churches that have address data but null lat/lng.
+ * Batch geocode groups that have address data but null lat/lng.
  * Respects Nominatim's 1 request/second rate limit.
  * Called after PCO sync campus upsert completes.
  */
-export async function geocodeHouseChurchesWithoutCoords(opts: GeocodeBatchOptions = {}): Promise<GeocodeBatchResult> {
+export async function geocodeGroupsWithoutCoords(opts: GeocodeBatchOptions = {}): Promise<GeocodeBatchResult> {
   const rows = await sql(
     `SELECT id, address_street, address_city, address_state, address_zip
-     FROM house_churches
+     FROM groups
      WHERE is_active = true
        AND latitude IS NULL
        AND (address_street IS NOT NULL AND address_street != ''
@@ -188,7 +188,7 @@ export async function geocodeHouseChurchesWithoutCoords(opts: GeocodeBatchOption
     if (error) errors++;
     if (coords) {
       await sql(
-        'UPDATE house_churches SET latitude = $1, longitude = $2 WHERE id = $3',
+        'UPDATE groups SET latitude = $1, longitude = $2 WHERE id = $3',
         [coords.lat, coords.lng, row.id]
       );
       geocoded++;

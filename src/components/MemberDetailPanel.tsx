@@ -9,7 +9,7 @@ export interface DirectoryMember {
   id: string;
   first_name: string;
   last_name: string;
-  house_church_name: string | null;
+  group_name: string | null;
   email?: string | null;
   phone?: string | null;
   date_of_birth?: string | null;
@@ -38,7 +38,7 @@ export function MemberDetailPanel({ member, onClose }: { member: DirectoryMember
 
   // A row only when the server sent the field at all.
   const rows: [string, string | null | undefined, boolean][] = [
-    [t('mem.houseChurch'), member.house_church_name, true],
+    [t('mem.group'), member.group_name, true],
     [t('auth.email'), member.email, 'email' in member],
     [t('mem.phone'), member.phone, 'phone' in member],
     [t('mem.address'), address, 'address_street' in member],

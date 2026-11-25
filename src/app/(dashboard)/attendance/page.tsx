@@ -11,15 +11,15 @@ interface Member {
   id: string;
   first_name: string;
   last_name: string;
-  house_church_id: string | null;
-  house_church_name: string | null;
+  group_id: string | null;
+  group_name: string | null;
   date_of_birth: string | null;
   pco_household_id: string | null;
   household_name: string | null;
   attendance_note: string | null;
 }
 
-interface HouseChurch {
+interface Group {
   id: string;
   name: string;
 }
@@ -31,31 +31,31 @@ interface HistoryData {
 }
 
 /**
- * History for the Record tab's rate sort. sessionScopes is set only for house
- * church attendance across all HCs, so each member can be scored against
- * their own house church's sessions rather than every HC's meeting dates.
+ * History for the Record tab's rate sort. sessionScopes is set only for group
+ * attendance across all groups, so each member can be scored against
+ * their own group's sessions rather than every group's meeting dates.
  */
 interface RateHistory extends HistoryData {
-  sessionScopes?: { date: string; house_church_id: string | null }[];
+  sessionScopes?: { date: string; group_id: string | null }[];
 }
 
 interface SessionRow {
   date: string;
   attendance_type: string;
-  house_church_id: string | null;
-  house_church_name: string | null;
+  group_id: string | null;
+  group_name: string | null;
   recorded_by_name: string | null;
   present_count: number;
   adult_count?: number;
   kid_count?: number;
 }
 
-type GroupMode = 'household' | 'house_church' | 'alpha' | 'rate_desc' | 'rate_asc';
+type GroupMode = 'household' | 'group' | 'alpha' | 'rate_desc' | 'rate_asc';
 
 interface MemberGroup {
   key: string;
   label: string;
-  /** False for the trailing "No household" / "No house church" bucket. */
+  /** False for the trailing "No household" / "No group" bucket. */
   real: boolean;
   members: Member[];
 }
@@ -112,17 +112,17 @@ function byLastName(a: Member, b: Member): number {
 }
 
 /**
- * Buckets members by household or house church. Groups are alphabetical,
- * members within a group by last name, and members with no household / house
- * church land in one bucket at the end.
+ * Buckets members by household or group. Groups are alphabetical,
+ * members within a group by last name, and members with no household / group
+ * land in one bucket at the end.
  */
-function groupMembers(list: Member[], mode: 'household' | 'house_church', noneLabel: string): MemberGroup[] {
+function groupMembers(list: Member[], mode: 'household' | 'group', noneLabel: string): MemberGroup[] {
   const groups = new Map<string, MemberGroup>();
   const none: MemberGroup = { key: '__none__', label: noneLabel, real: false, members: [] };
 
   for (const m of list) {
-    const key = mode === 'household' ? m.pco_household_id : m.house_church_id;
-    const label = mode === 'household' ? m.household_name : m.house_church_name;
+    const key = mode === 'household' ? m.pco_household_id : m.group_id;
+    const label = mode === 'household' ? m.household_name : m.group_name;
     if (!key) {
       none.members.push(m);
       continue;
@@ -155,18 +155,18 @@ function sortByRate(list: Member[], rateOf: (id: string) => Rate, desc: boolean)
 /** Attended/held per member from a history payload. */
 function ratesFromHistory(h: RateHistory, members: Member[]): (id: string) => Rate {
   if (h.sessionScopes) {
-    // Held = sessions of the member's own house church; attended = their
-    // present records on those dates. No house church → nothing held.
-    const heldByHc = new Map<string, Set<string>>();
+    // Held = sessions of the member's own group; attended = their
+    // present records on those dates. No group → nothing held.
+    const heldByGroup = new Map<string, Set<string>>();
     for (const s of h.sessionScopes) {
-      if (!s.house_church_id) continue;
-      if (!heldByHc.has(s.house_church_id)) heldByHc.set(s.house_church_id, new Set());
-      heldByHc.get(s.house_church_id)!.add(s.date);
+      if (!s.group_id) continue;
+      if (!heldByGroup.has(s.group_id)) heldByGroup.set(s.group_id, new Set());
+      heldByGroup.get(s.group_id)!.add(s.date);
     }
-    const hcOf = new Map(members.map(m => [m.id, m.house_church_id]));
+    const groupOf = new Map(members.map(m => [m.id, m.group_id]));
     const heldFor = (id: string) => {
-      const hc = hcOf.get(id);
-      return (hc && heldByHc.get(hc)) || new Set<string>();
+      const hc = groupOf.get(id);
+      return (hc && heldByGroup.get(hc)) || new Set<string>();
     };
     const attended = new Map<string, number>();
     for (const r of h.records) {
@@ -233,8 +233,8 @@ export default function AttendancePage() {
   const [eventType, setEventType] = useState('sunday_service');
   const [date, setDate] = useState(today);
   const [allMembers, setAllMembers] = useState<Member[]>([]);
-  const [churches, setChurches] = useState<HouseChurch[]>([]);
-  const [selectedHcId, setSelectedHcId] = useState<string>('');
+  const [groups, setGroups] = useState<Group[]>([]);
+  const [selectedGroupId, setSelectedGroupId] = useState<string>('');
   const [attendance, setAttendance] = useState<Record<string, boolean>>({});
   const [showMinors, setShowMinors] = useState(false);
   const [importingKids, setImportingKids] = useState(false);
@@ -251,41 +251,41 @@ export default function AttendancePage() {
   // View tab state
   const [viewType, setViewType] = useState('sunday_service');
   const [months, setMonths] = useState(2);
-  const [viewHcId, setViewHcId] = useState('');
+  const [viewGroupId, setViewGroupId] = useState('');
   const [history, setHistory] = useState<HistoryData | null>(null);
   const [viewLoading, setViewLoading] = useState(false);
-  const [myHcIds, setMyHcIds] = useState<string[]>([]);
-  const [myHcLoaded, setMyHcLoaded] = useState(false);
+  const [myGroupIds, setMyGroupIds] = useState<string[]>([]);
+  const [myGroupsLoaded, setMyGroupsLoaded] = useState(false);
   const [viewGroup, setViewGroup] = useState<GroupMode>('alpha');
   const [sessions, setSessions] = useState<SessionRow[]>([]);
   const [viewReload, setViewReload] = useState(0);
 
-  const isLeader = userRole === 'admin' || userRole === 'house_church_pastor';
+  const isLeader = userRole === 'admin' || userRole === 'group_leader';
 
   useEffect(() => {
     if (!isLeader) return;
     Promise.all([
       fetch('/api/members').then(r => r.json()),
-      fetch('/api/house-churches').then(r => r.json()),
+      fetch('/api/groups').then(r => r.json()),
       fetch('/api/me').then(r => r.json()),
-    ]).then(([memData, hcData, me]) => {
+    ]).then(([memData, groupData, me]) => {
       let mems: Member[] = memData.members || [];
-      let hcs: HouseChurch[] = hcData.churches || [];
-      // Pastors record and view attendance for their own house church only
+      let hcs: Group[] = groupData.groups || [];
+      // Pastors record and view attendance for their own group only
       // (the API enforces this); list just their members and groups.
-      if (me.role === 'house_church_pastor') {
-        const mine: string[] = me.pastoredHcIds || [];
-        mems = mems.filter(m => !!m.house_church_id && mine.includes(m.house_church_id));
+      if (me.role === 'group_leader') {
+        const mine: string[] = me.ledGroupIds || [];
+        mems = mems.filter(m => !!m.group_id && mine.includes(m.group_id));
         hcs = hcs.filter(hc => mine.includes(hc.id));
-        if (hcs.length > 0) setSelectedHcId(hcs[0].id);
+        if (hcs.length > 0) setSelectedGroupId(hcs[0].id);
       }
       setAllMembers(mems);
-      setChurches(hcs);
+      setGroups(hcs);
     }).catch(() => {})
       .finally(() => setLoading(false));
   }, [isLeader]);
 
-  // Pre-load existing attendance when date, event type, or HC changes
+  // Pre-load existing attendance when date, event type, or group changes
   useEffect(() => {
     if (!date || !eventType || allMembers.length === 0) return;
 
@@ -293,8 +293,8 @@ export default function AttendancePage() {
     allMembers.forEach(m => { initial[m.id] = false; });
 
     const params = new URLSearchParams({ date, attendance_type: eventType });
-    if (eventType === 'house_church' && selectedHcId) {
-      params.set('house_church_id', selectedHcId);
+    if (eventType === 'group' && selectedGroupId) {
+      params.set('group_id', selectedGroupId);
     }
 
     fetch(`/api/attendance/existing?${params}`)
@@ -307,11 +307,11 @@ export default function AttendancePage() {
         setAttendance(updated);
       })
       .catch(() => setAttendance(initial));
-  }, [date, eventType, selectedHcId, allMembers.length]);
+  }, [date, eventType, selectedGroupId, allMembers.length]);
 
-  // Record tab rate sorts need history; fetch once per event type + HC.
-  const recordHcId = eventType === 'house_church' ? selectedHcId : '';
-  const rateKey = `${eventType}|${recordHcId}`;
+  // Record tab rate sorts need history; fetch once per event type + group.
+  const recordGroupId = eventType === 'group' ? selectedGroupId : '';
+  const rateKey = `${eventType}|${recordGroupId}`;
   const recordRateSort = recordGroup === 'rate_desc' || recordGroup === 'rate_asc';
   useEffect(() => {
     if (!recordRateSort) return;
@@ -319,11 +319,11 @@ export default function AttendancePage() {
 
     rateInFlight.current.add(rateKey);
     const params = new URLSearchParams({ attendance_type: eventType, months: '2' });
-    if (recordHcId) params.set('house_church_id', recordHcId);
+    if (recordGroupId) params.set('group_id', recordGroupId);
 
-    // House church with "All" selected: also fetch each session's HC so
-    // members are scored only against their own house church's sessions.
-    const needScopes = eventType === 'house_church' && !recordHcId;
+    // Group with "All" selected: also fetch each session's group so
+    // members are scored only against their own group's sessions.
+    const needScopes = eventType === 'group' && !recordGroupId;
 
     Promise.all([
       fetch(`/api/attendance/history?${params}`).then(r => r.json()),
@@ -341,7 +341,7 @@ export default function AttendancePage() {
             ...(scopeData && {
               sessionScopes: ((scopeData.sessions || []) as SessionRow[]).map(s => ({
                 date: s.date,
-                house_church_id: s.house_church_id,
+                group_id: s.group_id,
               })),
             }),
           },
@@ -349,21 +349,21 @@ export default function AttendancePage() {
       })
       .catch(() => {})
       .finally(() => { rateInFlight.current.delete(rateKey); });
-  }, [recordRateSort, rateKey, eventType, recordHcId, rateCache]);
+  }, [recordRateSort, rateKey, eventType, recordGroupId, rateCache]);
 
-  // A house church must be selected to view its history — meeting days differ
-  // between house churches, so there is no meaningful "all" column set.
+  // A group must be selected to view its history — meeting days differ
+  // between groups, so there is no meaningful "all" column set.
   useEffect(() => {
-    if (viewType !== 'house_church' || viewHcId || churches.length === 0) return;
-    if (!myHcLoaded) return;
-    const mine = churches.find(c => myHcIds.includes(c.id));
-    setViewHcId(mine ? mine.id : churches[0].id);
-  }, [viewType, viewHcId, churches, myHcIds, myHcLoaded]);
+    if (viewType !== 'group' || viewGroupId || groups.length === 0) return;
+    if (!myGroupsLoaded) return;
+    const mine = groups.find(c => myGroupIds.includes(c.id));
+    setViewGroupId(mine ? mine.id : groups[0].id);
+  }, [viewType, viewGroupId, groups, myGroupIds, myGroupsLoaded]);
 
   // Load history and the recorded-sessions list for the View tab
   useEffect(() => {
     if (tab !== 'view') return;
-    if (viewType === 'house_church' && !viewHcId) return;
+    if (viewType === 'group' && !viewGroupId) return;
 
     let cancelled = false;
     setViewLoading(true);
@@ -372,8 +372,8 @@ export default function AttendancePage() {
       attendance_type: viewType,
       months: String(months),
     });
-    if (viewType === 'house_church' && viewHcId) {
-      params.set('house_church_id', viewHcId);
+    if (viewType === 'group' && viewGroupId) {
+      params.set('group_id', viewGroupId);
     }
 
     fetch(`/api/attendance/sessions?${params}`)
@@ -390,7 +390,7 @@ export default function AttendancePage() {
           meeting_day: data.meeting_day ?? null,
           records: data.records || [],
         });
-        setMyHcIds(data.my_house_church_ids || []);
+        setMyGroupIds(data.my_group_ids || []);
       })
       .catch(() => {
         if (!cancelled) setHistory({ sessions: [], meeting_day: null, records: [] });
@@ -398,11 +398,11 @@ export default function AttendancePage() {
       .finally(() => {
         if (cancelled) return;
         setViewLoading(false);
-        setMyHcLoaded(true);
+        setMyGroupsLoaded(true);
       });
 
     return () => { cancelled = true; };
-  }, [tab, viewType, months, viewHcId, viewReload]);
+  }, [tab, viewType, months, viewGroupId, viewReload]);
 
   const hideMinor = (m: Member) => {
     if (showMinors || !m.date_of_birth) return false;
@@ -410,9 +410,9 @@ export default function AttendancePage() {
     return age !== null && age < 18;
   };
 
-  // Filter members: by HC when applicable, and by minors toggle
+  // Filter members: by group when applicable, and by minors toggle
   const members = allMembers.filter(m => {
-    if (eventType === 'house_church' && selectedHcId && m.house_church_id !== selectedHcId) return false;
+    if (eventType === 'group' && selectedGroupId && m.group_id !== selectedGroupId) return false;
     return !hideMinor(m);
   });
 
@@ -503,7 +503,7 @@ export default function AttendancePage() {
       present: attendance[m.id] ?? false,
     }));
 
-    const hcId = eventType === 'house_church' ? selectedHcId || null : null;
+    const groupId = eventType === 'group' ? selectedGroupId || null : null;
 
     try {
       const res = await fetch('/api/attendance', {
@@ -512,7 +512,7 @@ export default function AttendancePage() {
         body: JSON.stringify({
           date,
           attendance_type: eventType,
-          house_church_id: hcId,
+          group_id: groupId,
           records,
         }),
       });
@@ -542,8 +542,8 @@ export default function AttendancePage() {
   const recordGroups: MemberGroup[] | null =
     recordGroup === 'household'
       ? groupMembers(members, 'household', t('att.noHousehold'))
-      : recordGroup === 'house_church'
-        ? groupMembers(members, 'house_church', t('att.noHouseChurch'))
+      : recordGroup === 'group'
+        ? groupMembers(members, 'group', t('att.noGroup'))
         : null;
 
   const recordRateHistory = rateCache[rateKey];
@@ -555,7 +555,7 @@ export default function AttendancePage() {
 
   // --- View tab derived data ---
   const viewMembers = allMembers.filter(m => {
-    if (viewType === 'house_church' && m.house_church_id !== viewHcId) return false;
+    if (viewType === 'group' && m.group_id !== viewGroupId) return false;
     return !hideMinor(m);
   });
 
@@ -582,7 +582,7 @@ export default function AttendancePage() {
   // the Show Minors toggle. Kid = under 18 on that session's date; no
   // birthday on file counts as adult.
   const scopeMembers = allMembers.filter(m =>
-    viewType === 'house_church' ? m.house_church_id === viewHcId : true
+    viewType === 'group' ? m.group_id === viewGroupId : true
   );
   const isKidOn = (m: Member, d: string) => {
     if (!m.date_of_birth) return false;
@@ -626,8 +626,8 @@ export default function AttendancePage() {
   const viewGroups: MemberGroup[] =
     viewGroup === 'household'
       ? groupMembers(viewMembers, 'household', t('att.noHousehold'))
-      : viewGroup === 'house_church'
-        ? groupMembers(viewMembers, 'house_church', t('att.noHouseChurch'))
+      : viewGroup === 'group'
+        ? groupMembers(viewMembers, 'group', t('att.noGroup'))
         : [{
             key: '__all__',
             label: '',
@@ -636,10 +636,10 @@ export default function AttendancePage() {
               ? [...viewMembers].sort(byLastName)
               : sortByRate(viewMembers, rateParts, viewGroup === 'rate_desc'),
           }];
-  const viewGrouped = viewGroup === 'household' || viewGroup === 'house_church';
+  const viewGrouped = viewGroup === 'household' || viewGroup === 'group';
 
   const showNoMeetingDay =
-    viewType === 'house_church' && !!viewHcId && !viewLoading && !!history && !history.meeting_day;
+    viewType === 'group' && !!viewGroupId && !viewLoading && !!history && !history.meeting_day;
 
   // Compact column header in the viewer's locale (11/30 in English, 30/11 in Spanish).
   const dayMonth = (d: string) => formatNumericMonthDay(d, language);
@@ -661,7 +661,7 @@ export default function AttendancePage() {
   const toggleViewMark = async (memberId: string, d: string) => {
     if (!history || !sessionSet.has(d)) return;
     const was = presentOn(memberId, d);
-    const hcId = viewType === 'house_church' ? viewHcId || null : null;
+    const groupId = viewType === 'group' ? viewGroupId || null : null;
 
     const applyLocal = (present: boolean) => {
       setHistory(h => h && ({
@@ -675,7 +675,7 @@ export default function AttendancePage() {
       const delta = present ? 1 : -1;
       setSessions(prev => prev.map(sess => {
         if (sess.date !== d || sess.attendance_type !== viewType) return sess;
-        if (viewType === 'house_church' && sess.house_church_id !== hcId) return sess;
+        if (viewType === 'group' && sess.group_id !== groupId) return sess;
         return {
           ...sess,
           present_count: sess.present_count + delta,
@@ -693,7 +693,7 @@ export default function AttendancePage() {
         body: JSON.stringify({
           date: d,
           attendance_type: viewType,
-          house_church_id: hcId,
+          group_id: groupId,
           records: [{ member_id: memberId, present: !was }],
         }),
       });
@@ -708,14 +708,14 @@ export default function AttendancePage() {
 
   const canDeleteSession = (s: SessionRow) =>
     userRole === 'admin'
-    || (userRole === 'house_church_pastor'
-      && s.attendance_type === 'house_church'
-      && !!s.house_church_id
-      && myHcIds.includes(s.house_church_id));
+    || (userRole === 'group_leader'
+      && s.attendance_type === 'group'
+      && !!s.group_id
+      && myGroupIds.includes(s.group_id));
 
   const editSession = (s: SessionRow) => {
     setEventType(s.attendance_type);
-    setSelectedHcId(s.house_church_id || '');
+    setSelectedGroupId(s.group_id || '');
     setDate(s.date);
     setTab('record');
   };
@@ -729,7 +729,7 @@ export default function AttendancePage() {
         body: JSON.stringify({
           date: s.date,
           attendance_type: s.attendance_type,
-          house_church_id: s.house_church_id,
+          group_id: s.group_id,
         }),
       });
       if (!res.ok) {
@@ -754,7 +754,7 @@ export default function AttendancePage() {
       >
         <option value="alpha">{t('att.groupAlpha')}</option>
         <option value="household">{t('att.groupHousehold')}</option>
-        <option value="house_church">{t('att.groupHouseChurch')}</option>
+        <option value="group">{t('att.groupByGroup')}</option>
         <option value="rate_desc">{t('att.groupRateDesc')}</option>
         <option value="rate_asc">{t('att.groupRateAsc')}</option>
       </select>
@@ -781,8 +781,8 @@ export default function AttendancePage() {
         />
         <span>
           {member.first_name} {member.last_name}
-          {member.house_church_name && (
-            <span style={noteStyle}>— {member.house_church_name}</span>
+          {member.group_name && (
+            <span style={noteStyle}>— {member.group_name}</span>
           )}
           {member.attendance_note && editingNoteId !== member.id && (
             <span style={noteStyle}>· {member.attendance_note}</span>
@@ -889,7 +889,7 @@ export default function AttendancePage() {
                   onChange={(e) => setEventType(e.target.value)}
                 >
                   <option value="sunday_service">{t('att.sundayService')}</option>
-                  <option value="house_church">{t('att.houseChurch')}</option>
+                  <option value="group">{t('att.group')}</option>
                 </select>
               </div>
 
@@ -923,17 +923,17 @@ export default function AttendancePage() {
                 </button>
               )}
 
-              {eventType === 'house_church' && (
+              {eventType === 'group' && (
                 <div className="form-group" style={{ flex: 1, minWidth: '200px' }}>
-                  <label htmlFor="att-hc">{t('hc.title')}</label>
+                  <label htmlFor="att-group">{t('group.title')}</label>
                   <select
-                    id="att-hc"
+                    id="att-group"
                     className="form-input"
-                    value={selectedHcId}
-                    onChange={(e) => setSelectedHcId(e.target.value)}
+                    value={selectedGroupId}
+                    onChange={(e) => setSelectedGroupId(e.target.value)}
                   >
-                    {userRole === 'admin' && <option value="">{t('hc.allCampuses')}</option>}
-                    {churches.map(hc => (
+                    {userRole === 'admin' && <option value="">{t('group.allCampuses')}</option>}
+                    {groups.map(hc => (
                       <option key={hc.id} value={hc.id}>{hc.name}</option>
                     ))}
                   </select>
@@ -1005,7 +1005,7 @@ export default function AttendancePage() {
                   onChange={(e) => setViewType(e.target.value)}
                 >
                   <option value="sunday_service">{t('att.sundayService')}</option>
-                  <option value="house_church">{t('att.houseChurch')}</option>
+                  <option value="group">{t('att.group')}</option>
                 </select>
               </div>
 
@@ -1024,17 +1024,17 @@ export default function AttendancePage() {
                 </select>
               </div>
 
-              {viewType === 'house_church' && (
+              {viewType === 'group' && (
                 <div className="form-group" style={{ flex: 1, minWidth: '180px' }}>
-                  <label htmlFor="att-view-hc">{t('hc.title')}</label>
+                  <label htmlFor="att-view-group">{t('group.title')}</label>
                   <select
-                    id="att-view-hc"
+                    id="att-view-group"
                     className="form-input"
-                    value={viewHcId}
-                    onChange={(e) => setViewHcId(e.target.value)}
+                    value={viewGroupId}
+                    onChange={(e) => setViewGroupId(e.target.value)}
                   >
-                    <option value="">{t('att.selectHc')}</option>
-                    {churches.map(hc => (
+                    <option value="">{t('att.selectGroup')}</option>
+                    {groups.map(hc => (
                       <option key={hc.id} value={hc.id}>{hc.name}</option>
                     ))}
                   </select>
@@ -1057,9 +1057,9 @@ export default function AttendancePage() {
           </div>
 
           <div className="card" style={{ marginTop: '16px' }}>
-            {viewType === 'house_church' && !viewHcId ? (
+            {viewType === 'group' && !viewGroupId ? (
               <div style={{ padding: '40px', textAlign: 'center', color: 'var(--text-tertiary)' }}>
-                {t('att.selectHc')}
+                {t('att.selectGroup')}
               </div>
             ) : viewLoading || !history ? (
               <div style={{ padding: '40px', textAlign: 'center', color: 'var(--text-tertiary)' }}>
@@ -1195,7 +1195,7 @@ export default function AttendancePage() {
             )}
           </div>
 
-          {!(viewType === 'house_church' && !viewHcId) && !viewLoading && sessions.length > 0 && (
+          {!(viewType === 'group' && !viewGroupId) && !viewLoading && sessions.length > 0 && (
             <div className="card" style={{ marginTop: '16px' }}>
               <div className="card-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '8px' }}>
                 <h3 className="card-title">{t('att.sessions')}</h3>
@@ -1206,7 +1206,7 @@ export default function AttendancePage() {
               <div style={{ padding: '8px 16px' }}>
                 {sessions.map(s => (
                   <div
-                    key={`${s.date}|${s.attendance_type}|${s.house_church_id ?? ''}`}
+                    key={`${s.date}|${s.attendance_type}|${s.group_id ?? ''}`}
                     style={{
                       display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap',
                       padding: '10px 0', borderBottom: '1px solid var(--border)', fontSize: '14px',
@@ -1216,7 +1216,7 @@ export default function AttendancePage() {
                     <span style={{ flex: 1, minWidth: '140px' }}>
                       {s.attendance_type === 'sunday_service'
                         ? t('att.sundayService')
-                        : s.house_church_name || t('att.houseChurch')}
+                        : s.group_name || t('att.group')}
                       <span style={noteStyle}>
                         {t('att.present')}: {s.present_count}
                         {s.adult_count != null && s.kid_count != null &&

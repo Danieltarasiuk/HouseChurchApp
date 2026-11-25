@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { sql } from '@/lib/db';
-import { requireViewer, forbidden, leadsMemberIn, leaderHcScope, memberHouseChurches, LEADER_ROLES } from '@/lib/authz';
+import { requireViewer, forbidden, leadsMemberIn, leaderGroupScope, memberGroups, LEADER_ROLES } from '@/lib/authz';
 
 /** Normalize a Postgres DATE value (Date object or ISO string) to 'YYYY-MM-DD' */
 function toDateStr(v: unknown): string {
@@ -13,12 +13,12 @@ export async function GET(req: NextRequest) {
   if (error) return error;
 
   const memberId = req.nextUrl.searchParams.get('member_id');
-  // Pastors: members of their own house church only (admins: everyone).
+  // Pastors: members of their own group only (admins: everyone).
   if (memberId) {
-    const hcs = await memberHouseChurches([memberId]);
+    const hcs = await memberGroups([memberId]);
     if (!hcs.has(memberId) || !leadsMemberIn(viewer, hcs.get(memberId))) return forbidden();
   }
-  const scope = leaderHcScope(viewer);
+  const scope = leaderGroupScope(viewer);
 
   try {
     let meetings;
@@ -54,7 +54,7 @@ export async function GET(req: NextRequest) {
          JOIN members m ON pm.member_id = m.id
          LEFT JOIN users u ON pm.pastor_id = u.id
          WHERE pm.pastor_id = $1
-           AND ($2::text[] IS NULL OR m.house_church_id::text = ANY($2::text[]))
+           AND ($2::text[] IS NULL OR m.group_id::text = ANY($2::text[]))
          ORDER BY pm.meeting_date DESC`,
         [viewer.userId, scope]
       );
@@ -82,7 +82,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'member_id, topic_key, and meeting_date are required' }, { status: 400 });
     }
 
-    const hcs = await memberHouseChurches([String(member_id)]);
+    const hcs = await memberGroups([String(member_id)]);
     if (!hcs.has(String(member_id)) || !leadsMemberIn(viewer, hcs.get(String(member_id)))) return forbidden();
 
     const result = await sql(

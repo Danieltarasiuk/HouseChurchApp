@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeAll, beforeEach, afterEach, vi } from 'vitest';
 import { NextRequest } from 'next/server';
 import { current, setupTestDb, mockedSql, mockedWithTransaction } from './helpers/db';
-import { seedChurch, U, M, HC, ROLE_OF } from './helpers/fixtures';
+import { seedChurch, U, M, GROUP, ROLE_OF } from './helpers/fixtures';
 
 vi.mock('@/lib/db', () => ({
   sql: (text: string, params?: unknown[]) => mockedSql(text, params),
@@ -53,11 +53,11 @@ describe('signed-out requests', () => {
 
 describe('dashboard recent prayers', () => {
   beforeEach(async () => {
-    await sql(`INSERT INTO prayer_requests (title, user_id, visibility, house_church_id) VALUES
+    await sql(`INSERT INTO prayer_requests (title, user_id, visibility, group_id) VALUES
       ('public one', $1, 'public', $2),
-      ('A group only', $1, 'house_church', $2),
+      ('A group only', $1, 'group', $2),
       ('A private', $1, 'private', $2),
-      ('B group only', $3, 'house_church', $4)`, [U.memberA1, HC.A, U.memberB1, HC.B]);
+      ('B group only', $3, 'group', $4)`, [U.memberA1, GROUP.A, U.memberB1, GROUP.B]);
   });
   const titles = async () => {
     const { GET } = await import('@/app/api/dashboard/route');
@@ -82,7 +82,7 @@ describe('dashboard recent prayers', () => {
     expect(await titles()).toHaveLength(4);
   });
   it('counts only visible active prayers', async () => {
-    as('memberNoHc');
+    as('memberNoGroup');
     const { GET } = await import('@/app/api/dashboard/route');
     expect((await (await GET()).json()).prayerCount).toBe(1);
   });
@@ -115,12 +115,12 @@ const sees = (row: Record<string, unknown>, field: string) => FIELD_KEYS[field].
 const seesNone = (row: Record<string, unknown>, field: string) => FIELD_KEYS[field].every((k) => !(k in row));
 
 describe('directory visibility', () => {
-  it('names and house church are always visible; with no settings every field is leaders-only', async () => {
+  it('names and group are always visible; with no settings every field is leaders-only', async () => {
     as('memberA1');
     const d = await directory();
     expect(Object.keys(d)).toHaveLength(9);
     for (const id of [M.A2, M.B1, M.N]) {
-      expect(d[id]).toMatchObject({ first_name: expect.any(String), house_church_id: expect.anything() === undefined ? null : d[id].house_church_id });
+      expect(d[id]).toMatchObject({ first_name: expect.any(String), group_id: expect.anything() === undefined ? null : d[id].group_id });
       for (const f of Object.keys(FIELD_KEYS)) expect(seesNone(d[id], f)).toBe(true);
     }
   });
@@ -130,12 +130,12 @@ describe('directory visibility', () => {
   const LEVELS = ['leaders', 'group', 'church'] as const;
   // [viewer, target, visible at leaders, at group, at church]
   const CASES: [keyof typeof U, string, string, boolean, boolean, boolean][] = [
-    ['memberA1', M.A2, 'same house church', false, true, true],
-    ['memberA1', M.B2, 'other house church', false, false, true],
-    ['memberNoHc', M.A2, 'viewer with no house church', false, false, true],
+    ['memberA1', M.A2, 'same group', false, true, true],
+    ['memberA1', M.B2, 'other group', false, false, true],
+    ['memberNoGroup', M.A2, 'viewer with no group', false, false, true],
     ['pastorA', M.A2, 'own pastor', true, true, true],
-    ['pastorA', M.B2, 'pastor of another house church', false, false, true],
-    ['pastorNone', M.A2, 'pastor of no house church', false, false, true],
+    ['pastorA', M.B2, 'pastor of another group', false, false, true],
+    ['pastorNone', M.A2, 'pastor of no group', false, false, true],
     ['admin', M.B2, 'admin', true, true, true],
   ];
   for (const field of FIELDS) {
@@ -152,9 +152,9 @@ describe('directory visibility', () => {
 
   it('the tightest of the four layers wins, and no layer loosens another', async () => {
     await setLayer('church', null, 'phone', 'church');
-    await setLayer('house_church', HC.A, 'phone', 'group');
+    await setLayer('group', GROUP.A, 'phone', 'group');
     as('memberB1');
-    expect(seesNone((await directory())[M.A1], 'phone')).toBe(true); // HC layer tightened to group
+    expect(seesNone((await directory())[M.A1], 'phone')).toBe(true); // group layer tightened to group
     as('memberA1');
     expect(sees((await directory())[M.A2], 'phone')).toBe(true);
 
@@ -163,7 +163,7 @@ describe('directory visibility', () => {
 
     // Looser lower layers change nothing:
     await setLayer('church', null, 'email', 'leaders');
-    await setLayer('house_church', HC.A, 'email', 'church');
+    await setLayer('group', GROUP.A, 'email', 'church');
     await setLayer('member', M.A2, 'email', 'church');
     await setLayer('member_self', M.A2, 'email', 'church');
     expect(seesNone((await directory())[M.A2], 'email')).toBe(true);
@@ -188,9 +188,9 @@ describe('directory visibility', () => {
     expect('attendance_note' in me).toBe(false); // never to members, own row included
   });
 
-  it('the birth year never reaches a member or a pastor of another house church', async () => {
+  it('the birth year never reaches a member or a pastor of another group', async () => {
     await setLayer('church', null, 'birthday', 'church');
-    for (const viewer of ['memberB1', 'memberNoHc', 'pastorB', 'pastorNone'] as const) { // not memberA1: that is A1 themselves
+    for (const viewer of ['memberB1', 'memberNoGroup', 'pastorB', 'pastorNone'] as const) { // not memberA1: that is A1 themselves
       as(viewer);
       const row = (await directory())[M.A1];
       expect(row.birthday).toBe('03-04');
@@ -206,7 +206,7 @@ describe('directory visibility', () => {
     expect((await directory())[M.A1].date_of_birth).toBe('1990-03-04');
   });
 
-  it('a member with no house church: group behaves as leaders', async () => {
+  it('a member with no group: group behaves as leaders', async () => {
     await setLayer('church', null, 'phone', 'group');
     for (const viewer of ['memberA1', 'pastorNone', 'pastorA'] as const) {
       as(viewer);
@@ -256,11 +256,11 @@ describe('directory visibility settings API', () => {
     ['admin', { scope: 'church', field: 'phone', level: 'church' }, 200],
     ['pastorA', { scope: 'church', field: 'phone', level: 'church' }, 403],
     ['memberA1', { scope: 'church', field: 'phone', level: 'church' }, 403],
-    ['pastorA', { scope: 'house_church', id: HC.A, field: 'phone', level: 'group' }, 200],
-    ['pastorA', { scope: 'house_church', id: HC.B, field: 'phone', level: 'group' }, 403],
-    ['pastorNone', { scope: 'house_church', id: HC.A, field: 'phone', level: 'group' }, 403],
-    ['memberA1', { scope: 'house_church', id: HC.A, field: 'phone', level: 'group' }, 403],
-    ['admin', { scope: 'house_church', id: HC.B, field: 'phone', level: 'group' }, 200],
+    ['pastorA', { scope: 'group', id: GROUP.A, field: 'phone', level: 'group' }, 200],
+    ['pastorA', { scope: 'group', id: GROUP.B, field: 'phone', level: 'group' }, 403],
+    ['pastorNone', { scope: 'group', id: GROUP.A, field: 'phone', level: 'group' }, 403],
+    ['memberA1', { scope: 'group', id: GROUP.A, field: 'phone', level: 'group' }, 403],
+    ['admin', { scope: 'group', id: GROUP.B, field: 'phone', level: 'group' }, 200],
     ['pastorA', { scope: 'member', id: M.A1, field: 'phone', level: 'leaders' }, 200],
     ['pastorA', { scope: 'member', id: M.B1, field: 'phone', level: 'leaders' }, 403],
     ['memberA1', { scope: 'member', id: M.A2, field: 'phone', level: 'leaders' }, 403],
@@ -283,14 +283,14 @@ describe('directory visibility settings API', () => {
   it('reports the level in effect, its source, and the ceiling from the layers above', async () => {
     as('admin');
     await put({ scope: 'church', field: 'phone', level: 'church' });
-    await put({ scope: 'house_church', id: HC.A, field: 'phone', level: 'group' });
+    await put({ scope: 'group', id: GROUP.A, field: 'phone', level: 'group' });
     as('memberA1');
     const res = await get('scope=member_self');
     const { fields } = await res.json();
     expect(fields.phone).toEqual({
       value: null,
-      effective: { level: 'group', source: 'house_church' },
-      ceiling: { level: 'group', source: 'house_church' },
+      effective: { level: 'group', source: 'group' },
+      ceiling: { level: 'group', source: 'group' },
     });
     expect(fields.email.effective).toEqual({ level: 'leaders', source: 'default' });
   });
@@ -306,7 +306,7 @@ describe('directory visibility settings API', () => {
 });
 
 // ---------------------------------------------------------------------------
-// B4 pastors limited to their own house church
+// B4 pastors limited to their own group
 // ---------------------------------------------------------------------------
 
 describe('attendance', () => {
@@ -314,21 +314,21 @@ describe('attendance', () => {
     const { POST } = await import('@/app/api/attendance/route');
     return POST(req('/api/attendance', { method: 'POST', body }));
   };
-  const hcAttendance = (hc: string, members: string[]) =>
-    post({ date: '2026-11-22', attendance_type: 'house_church', house_church_id: hc, records: members.map((id) => ({ member_id: id, present: true })) });
+  const groupAttendance = (hc: string, members: string[]) =>
+    post({ date: '2026-11-22', attendance_type: 'group', group_id: hc, records: members.map((id) => ({ member_id: id, present: true })) });
   const sunday = (members: string[]) =>
-    post({ date: '2026-11-22', attendance_type: 'sunday_service', house_church_id: null, records: members.map((id) => ({ member_id: id, present: true })) });
+    post({ date: '2026-11-22', attendance_type: 'sunday_service', group_id: null, records: members.map((id) => ({ member_id: id, present: true })) });
 
   it.each([
-    ['admin', HC.B, [M.B1], 200],
-    ['pastorA', HC.A, [M.A1, M.A2], 200],
-    ['pastorA', HC.B, [M.B1], 403],
-    ['pastorA', HC.A, [M.A1, M.B1], 403], // a B member smuggled into A's session
-    ['pastorNone', HC.A, [M.A1], 403],
-    ['memberA1', HC.A, [M.A1], 403],
-  ] as [keyof typeof U, string, string[], number][])('%s writes house church %s attendance for %j → %i', async (who, hc, members, status) => {
+    ['admin', GROUP.B, [M.B1], 200],
+    ['pastorA', GROUP.A, [M.A1, M.A2], 200],
+    ['pastorA', GROUP.B, [M.B1], 403],
+    ['pastorA', GROUP.A, [M.A1, M.B1], 403], // a B member smuggled into A's session
+    ['pastorNone', GROUP.A, [M.A1], 403],
+    ['memberA1', GROUP.A, [M.A1], 403],
+  ] as [keyof typeof U, string, string[], number][])('%s writes group %s attendance for %j → %i', async (who, hc, members, status) => {
     as(who);
-    expect((await hcAttendance(hc, members)).status).toBe(status);
+    expect((await groupAttendance(hc, members)).status).toBe(status);
   });
 
   it('pastors record Sunday service only for their own members', async () => {
@@ -341,22 +341,22 @@ describe('attendance', () => {
 
   it('a rejected write changes nothing', async () => {
     as('pastorA');
-    await hcAttendance(HC.B, [M.B1]);
+    await groupAttendance(GROUP.B, [M.B1]);
     expect(await sql('SELECT * FROM attendance')).toEqual([]);
   });
 
   describe('reads', () => {
     beforeEach(async () => {
       as('admin');
-      await hcAttendance(HC.A, [M.A1]);
-      await hcAttendance(HC.B, [M.B1]);
+      await groupAttendance(GROUP.A, [M.A1]);
+      await groupAttendance(GROUP.B, [M.B1]);
       await sunday([M.A1, M.B1, M.N]);
     });
 
-    it('existing: other house church → 403; Sunday lists only own members', async () => {
+    it('existing: other group → 403; Sunday lists only own members', async () => {
       const { GET } = await import('@/app/api/attendance/existing/route');
       as('pastorA');
-      expect((await GET(req(`/api/attendance/existing?date=2026-11-22&attendance_type=house_church&house_church_id=${HC.B}`))).status).toBe(403);
+      expect((await GET(req(`/api/attendance/existing?date=2026-11-22&attendance_type=group&group_id=${GROUP.B}`))).status).toBe(403);
       const sun = await (await GET(req('/api/attendance/existing?date=2026-11-22&attendance_type=sunday_service'))).json();
       expect(sun.present_member_ids).toEqual([M.A1]);
       as('pastorNone');
@@ -367,21 +367,21 @@ describe('attendance', () => {
       expect(all.present_member_ids.sort()).toEqual([M.A1, M.B1, M.N].sort());
     });
 
-    it('history: house church sessions and records only for own house church', async () => {
+    it('history: group sessions and records only for own group', async () => {
       const { GET } = await import('@/app/api/attendance/history/route');
       vi.useFakeTimers({ toFake: ['Date'] });
       vi.setSystemTime(new Date('2026-11-24T12:00:00Z'));
       try {
         as('pastorA');
-        const h = await (await GET(req('/api/attendance/history?attendance_type=house_church'))).json();
+        const h = await (await GET(req('/api/attendance/history?attendance_type=group'))).json();
         expect(h.sessions).toEqual(['2026-11-22']);
         expect(h.records).toEqual([{ member_id: M.A1, date: '2026-11-22' }]);
-        expect(h.my_house_church_ids).toEqual([HC.A]);
-        expect((await GET(req(`/api/attendance/history?attendance_type=house_church&house_church_id=${HC.B}`))).status).toBe(403);
+        expect(h.my_group_ids).toEqual([GROUP.A]);
+        expect((await GET(req(`/api/attendance/history?attendance_type=group&group_id=${GROUP.B}`))).status).toBe(403);
         const sun = await (await GET(req('/api/attendance/history?attendance_type=sunday_service'))).json();
         expect(sun.records.map((r: { member_id: string }) => r.member_id)).toEqual([M.A1]);
         as('pastorNone');
-        const none = await (await GET(req('/api/attendance/history?attendance_type=house_church'))).json();
+        const none = await (await GET(req('/api/attendance/history?attendance_type=group'))).json();
         expect(none.sessions).toEqual([]);
         expect(none.records).toEqual([]);
       } finally {
@@ -389,14 +389,14 @@ describe('attendance', () => {
       }
     });
 
-    it('sessions: only own house church sessions, Sunday counts only own members', async () => {
+    it('sessions: only own group sessions, Sunday counts only own members', async () => {
       const { GET } = await import('@/app/api/attendance/sessions/route');
       vi.useFakeTimers({ toFake: ['Date'] });
       vi.setSystemTime(new Date('2026-11-24T12:00:00Z'));
       try {
         as('pastorA');
-        const hc = await (await GET(req('/api/attendance/sessions?attendance_type=house_church'))).json();
-        expect(hc.sessions.map((s: { house_church_id: string }) => s.house_church_id)).toEqual([HC.A]);
+        const hc = await (await GET(req('/api/attendance/sessions?attendance_type=group'))).json();
+        expect(hc.sessions.map((s: { group_id: string }) => s.group_id)).toEqual([GROUP.A]);
         const sun = await (await GET(req('/api/attendance/sessions?attendance_type=sunday_service'))).json();
         expect(sun.sessions[0].present_count).toBe(1);
         as('admin');
@@ -407,21 +407,21 @@ describe('attendance', () => {
       }
     });
 
-    it('per-member history: another house church’s member → 403', async () => {
+    it('per-member history: another group’s member → 403', async () => {
       const { GET } = await import('@/app/api/attendance/route');
       as('pastorA');
       expect((await GET(req(`/api/attendance?member_id=${M.B1}`))).status).toBe(403);
       expect((await GET(req(`/api/attendance?member_id=${M.A1}`))).status).toBe(200);
     });
 
-    it('deleting another house church’s session → 403', async () => {
+    it('deleting another group’s session → 403', async () => {
       const { DELETE } = await import('@/app/api/attendance/sessions/route');
       as('pastorA');
-      const del = (hc: string | null, type = 'house_church') =>
-        DELETE(req('/api/attendance/sessions', { method: 'DELETE', body: { date: '2026-11-22', attendance_type: type, house_church_id: hc } }));
-      expect((await del(HC.B)).status).toBe(403);
+      const del = (hc: string | null, type = 'group') =>
+        DELETE(req('/api/attendance/sessions', { method: 'DELETE', body: { date: '2026-11-22', attendance_type: type, group_id: hc } }));
+      expect((await del(GROUP.B)).status).toBe(403);
       expect((await del(null, 'sunday_service')).status).toBe(403);
-      expect((await del(HC.A)).status).toBe(200);
+      expect((await del(GROUP.A)).status).toBe(200);
     });
   });
 });
@@ -450,19 +450,19 @@ describe('pastoral/members', () => {
   };
   const ids = async (q = '') => ((await (await list(q)).json()).members as { id: string }[]).map((m) => m.id).sort();
 
-  it('a pastor gets only their own house church', async () => {
+  it('a pastor gets only their own group', async () => {
     as('pastorA');
     expect(await ids()).toEqual([M.pastorA, M.A1, M.A2].sort());
-    expect((await list(`?house_church_id=${HC.B}`)).status).toBe(403);
+    expect((await list(`?group_id=${GROUP.B}`)).status).toBe(403);
   });
-  it('a pastor with no house church gets an empty list, never everyone', async () => {
+  it('a pastor with no group gets an empty list, never everyone', async () => {
     as('pastorNone');
     expect(await ids()).toEqual([]);
   });
   it('admins get everyone, and can filter', async () => {
     as('admin');
     expect(await ids()).toHaveLength(9);
-    expect(await ids(`?house_church_id=${HC.B}`)).toEqual([M.pastorB, M.B1, M.B2].sort());
+    expect(await ids(`?group_id=${GROUP.B}`)).toEqual([M.pastorB, M.B1, M.B2].sort());
   });
   it('members are refused', async () => {
     as('memberA1');
@@ -474,8 +474,8 @@ describe('prayer requests', () => {
   let aPrayer: string;
   let bPrayer: string;
   beforeEach(async () => {
-    [{ id: aPrayer }] = await sql(`INSERT INTO prayer_requests (title, user_id, visibility, house_church_id) VALUES ('a', $1, 'house_church', $2) RETURNING id`, [U.memberA1, HC.A]) as { id: string }[];
-    [{ id: bPrayer }] = await sql(`INSERT INTO prayer_requests (title, user_id, visibility, house_church_id) VALUES ('b', $1, 'house_church', $2) RETURNING id`, [U.memberB1, HC.B]) as { id: string }[];
+    [{ id: aPrayer }] = await sql(`INSERT INTO prayer_requests (title, user_id, visibility, group_id) VALUES ('a', $1, 'group', $2) RETURNING id`, [U.memberA1, GROUP.A]) as { id: string }[];
+    [{ id: bPrayer }] = await sql(`INSERT INTO prayer_requests (title, user_id, visibility, group_id) VALUES ('b', $1, 'group', $2) RETURNING id`, [U.memberB1, GROUP.B]) as { id: string }[];
   });
 
   it.each([
@@ -498,7 +498,7 @@ describe('prayer requests', () => {
     const { POST } = await import('@/app/api/prayer/route');
     return POST(new Request('http://localhost/api/prayer', {
       method: 'POST',
-      body: JSON.stringify({ title: 't', visibility: 'house_church', member_id: memberId, house_church_id: HC.B }),
+      body: JSON.stringify({ title: 't', visibility: 'group', member_id: memberId, group_id: GROUP.B }),
     }));
   };
 
@@ -515,13 +515,13 @@ describe('prayer requests', () => {
     expect((await postFor(memberId)).status).toBe(status);
   });
 
-  it('the house church always comes from the member, never from the request', async () => {
+  it('the group always comes from the member, never from the request', async () => {
     as('memberA1');
     const { prayer } = await (await postFor(null)).json();
-    expect(prayer.house_church_id).toBe(HC.A); // request said HC B
+    expect(prayer.group_id).toBe(GROUP.A); // request said group B
     as('pastorA');
     const { prayer: p2 } = await (await postFor(M.A2)).json();
-    expect(p2.house_church_id).toBe(HC.A);
+    expect(p2.group_id).toBe(GROUP.A);
   });
 
   it('GET follows the same visibility as the dashboard', async () => {
