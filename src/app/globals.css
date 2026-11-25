@@ -1146,3 +1146,18 @@ tr:hover td {
 /* Inline text that opens something (e.g. a member's name in a table). */
 .link-button { background: none; border: none; padding: 0; font: inherit; color: inherit; cursor: pointer; text-align: left; }
 .link-button:hover, .link-button:focus-visible { color: var(--accent-soft-text); text-decoration: underline; }
+
+/* PrivacyControls: "In effect" sits in its own column on wide screens and
+   under the dropdown on small ones. */
+.privacy-effective-inline { display: none; }
+@media (max-width: 768px) {
+  .privacy-effective-inline { display: block; margin-top: 4px; font-size: 12px; color: var(--text-secondary); }
+  /* One field per block: label, full-width dropdown, then "In effect". */
+  .privacy-controls table, .privacy-controls tbody, .privacy-controls tr, .privacy-controls td { display: block; width: 100%; min-width: 0; }
+  .privacy-controls thead { display: none; }
+  .privacy-controls tr { padding: 10px 0; border-bottom: 1px solid var(--border); }
+  .privacy-controls td { padding: 2px 0; border: none; }
+  .privacy-controls td:first-child { font-weight: 600; }
+  .privacy-controls select { max-width: none !important; }
+  .privacy-controls td.col-hide-mobile { display: none; }
+}

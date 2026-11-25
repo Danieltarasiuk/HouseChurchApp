@@ -5,7 +5,9 @@ import { X } from 'lucide-react';
 import { useLang } from '@/context/LangContext';
 
 // Verse cache to store fetched scripture text
-const verseCache: { [key: string]: { ref: string; text: string }[] } = {};
+/** A passage, or text: null when it could not be loaded (translated at render). */
+type Passage = { ref: string; text: string | null };
+const verseCache: { [key: string]: Passage[] } = {};
 
 interface ScriptureModalProps {
   reference: string;
@@ -60,45 +62,36 @@ export default function ScriptureModal({
   onClose,
 }: ScriptureModalProps) {
   const { t } = useLang();
-  const [passages, setPassages] = useState<{ ref: string; text: string }[] | null>(null);
-  const [loading, setLoading] = useState(true);
+  const cacheKey = `${reference}|${lang}`;
+  // Fetched passages, tagged with the request they belong to.
+  const [fetched, setFetched] = useState<{ key: string; passages: Passage[] } | null>(null);
+  // Cached passages are read during render; the effect only fetches (no
+  // synchronous setState inside it).
+  const passages = verseCache[cacheKey] ?? (fetched?.key === cacheKey ? fetched.passages : null);
+  const loading = !passages;
 
   useEffect(() => {
-    const cacheKey = `${reference}|${lang}`;
-
-    if (verseCache[cacheKey]) {
-      setPassages(verseCache[cacheKey]);
-      setLoading(false);
-      return;
-    }
-
-    setLoading(true);
+    if (verseCache[cacheKey]) return;
     let cancelled = false;
 
     const refs = expandRefs(reference);
     const apiBase = lang === 'es' ? '/api/scripture/nbla' : '/api/scripture/esv';
 
     Promise.all(
-      refs.map(ref =>
+      refs.map((ref): Promise<Passage> =>
         fetch(`${apiBase}?ref=${encodeURIComponent(ref)}`)
           .then(res => res.json())
-          .then(data => {
-            if (data.error || !data.text) {
-              return { ref, text: t('scripture.unavailable').replace('{ref}', ref) };
-            }
-            return { ref, text: data.text };
-          })
-          .catch(() => ({ ref, text: t('scripture.unavailable').replace('{ref}', ref) }))
+          .then(data => ({ ref, text: data.error || !data.text ? null : (data.text as string) }))
+          .catch(() => ({ ref, text: null }))
       )
     ).then(results => {
-      if (cancelled) return;
-      verseCache[cacheKey] = results;
-      setPassages(results);
-      setLoading(false);
+      // Only successful lookups are cached, so a failure is retried next time.
+      if (results.every((p) => p.text !== null)) verseCache[cacheKey] = results;
+      if (!cancelled) setFetched({ key: cacheKey, passages: results });
     });
 
     return () => { cancelled = true; };
-  }, [reference, lang]);
+  }, [cacheKey, reference, lang]);
 
   return (
     <div className="verse-overlay" onClick={onClose}>
@@ -121,7 +114,7 @@ export default function ScriptureModal({
               {passages && passages.map((p, i) => (
                 <div key={i}>
                   {i > 0 && <hr style={{ margin: '12px 0', borderColor: 'var(--border)' }} />}
-                  <p style={{ whiteSpace: 'pre-line' }}>{p.text}</p>
+                  <p style={{ whiteSpace: 'pre-line' }}>{p.text ?? t('scripture.unavailable').replace('{ref}', p.ref)}</p>
                   {passages.length > 1 && (
                     <p style={{ fontSize: '0.8rem', color: 'var(--text-tertiary)', fontStyle: 'italic', marginTop: '4px' }}>
                       — {p.ref}

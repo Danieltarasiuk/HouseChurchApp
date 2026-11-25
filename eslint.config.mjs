@@ -12,11 +12,6 @@ const config = [
     // Explicit, so eslint-plugin-react skips version detection, which calls
     // an API ESLint 10 removed (context.getFilename).
     settings: { react: { version: '19.2' } },
-    rules: {
-      // React Compiler rule new in eslint-plugin-react-hooks 7. Existing code
-      // (LangContext, ScriptureModal) predates it; warn until refactored.
-      'react-hooks/set-state-in-effect': 'warn',
-    },
   },
   {
     // Test plumbing wraps untyped driver results.

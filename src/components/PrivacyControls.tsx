@@ -92,7 +92,7 @@ export function PrivacyControls({ scope, id, title, description }: Props) {
               <tr>
                 <th>{t('privacy.field')}</th>
                 <th>{t('privacy.thisSetting')}</th>
-                <th>{t('privacy.effective')}</th>
+                <th className="col-hide-mobile">{t('privacy.effective')}</th>
               </tr>
             </thead>
             <tbody>
@@ -109,7 +109,7 @@ export function PrivacyControls({ scope, id, title, description }: Props) {
                         value={f.value ?? ''}
                         disabled={saving === field}
                         onChange={(e) => save(field, (e.target.value || null) as VisibilityLevel | null)}
-                        style={{ minWidth: '160px' }}
+                        style={{ minWidth: 0, width: '100%', maxWidth: '220px' }}
                       >
                         <option value="">{t(scope === 'church' ? 'privacy.notSetChurch' : 'privacy.notSet')}</option>
                         {VISIBILITY_LEVELS.map((level) => (
@@ -123,8 +123,10 @@ export function PrivacyControls({ scope, id, title, description }: Props) {
                           </option>
                         ))}
                       </select>
+                      {/* Small screens: "In effect" under the dropdown instead of a third column. */}
+                      <div className="privacy-effective-inline">{describeEffective(f.effective)}</div>
                     </td>
-                    <td style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>{describeEffective(f.effective)}</td>
+                    <td className="col-hide-mobile" style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>{describeEffective(f.effective)}</td>
                   </tr>
                 );
               })}
