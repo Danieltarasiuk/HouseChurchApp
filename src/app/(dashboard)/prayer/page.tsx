@@ -3,6 +3,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { useSession } from 'next-auth/react';
 import { useLang } from '@/context/LangContext';
+import { formatDate } from '@/lib/formatDate';
 import { Trash2, ChevronDown } from 'lucide-react';
 
 interface PrayerRequest {
@@ -25,7 +26,7 @@ interface Member {
 }
 
 export default function PrayerPage() {
-  const { t } = useLang();
+  const { t, language } = useLang();
   const { data: session } = useSession();
   const userRole = (session?.user as { role?: string })?.role;
   const isPastor = userRole === 'admin' || userRole === 'house_church_pastor';
@@ -365,7 +366,7 @@ export default function PrayerPage() {
               <div>
                 <h3 style={{ fontSize: '15px', fontWeight: 600, marginBottom: '4px' }}>{prayer.title}</h3>
                 <p style={{ fontSize: '13px', color: 'var(--text-tertiary)', margin: 0 }}>
-                  {renderRequesterLine(prayer)} &middot; {new Date(prayer.created_at).toLocaleDateString()}
+                  {renderRequesterLine(prayer)} &middot; {formatDate(prayer.created_at, language)}
                 </p>
               </div>
               <div style={{ display: 'flex', gap: '6px', alignItems: 'center', flexShrink: 0 }}>

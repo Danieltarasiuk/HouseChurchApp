@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import { HandCoins } from 'lucide-react';
 import { useLang } from '@/context/LangContext';
+import { formatDate } from '@/lib/formatDate';
 import { GiveLink } from '@/components/GiveLink';
 import { GIVING_URL } from '@/lib/giving';
 
@@ -14,7 +15,7 @@ interface DashboardData {
 }
 
 export default function DashboardPage() {
-  const { t } = useLang();
+  const { t, language } = useLang();
   const [data, setData] = useState<DashboardData | null>(null);
   const [error, setError] = useState(false);
 
@@ -109,7 +110,7 @@ export default function DashboardPage() {
                 <div>
                   <div style={{ fontWeight: 600, fontSize: 14 }}>{prayer.title}</div>
                   <div style={{ fontSize: 12, color: 'var(--text-tertiary)', marginTop: 2 }}>
-                    {prayer.requester_name || t('dashboard.anonymous')} &middot; {prayer.created_at?.slice(0, 10)}
+                    {prayer.requester_name || t('dashboard.anonymous')} &middot; {formatDate(prayer.created_at, language)}
                   </div>
                 </div>
                 <span className={`badge ${prayer.status === 'active' ? 'badge-active' : 'badge-answered'}`}>

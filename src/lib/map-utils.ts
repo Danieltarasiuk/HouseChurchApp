@@ -16,3 +16,10 @@ export function getHCColor(hcId: string, allHCIds: string[]): string {
   const idx = allHCIds.indexOf(hcId) % HC_PALETTE.length;
   return HC_PALETTE[idx >= 0 ? idx : 0];
 }
+
+const HTML_ESCAPES: Record<string, string> = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
+
+/** Escape text for a map tooltip's HTML (names and addresses come from PCO). */
+export function escapeHtml(s: string | null | undefined): string {
+  return (s ?? '').replace(/[&<>"']/g, (c) => HTML_ESCAPES[c]);
+}

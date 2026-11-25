@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { useLang } from '@/context/LangContext';
+import { MEETING_DAYS, meetingDayLabel } from '@/lib/formatDate';
 
 interface HouseChurchData {
   id?: string | number;
@@ -57,7 +58,6 @@ const emptyForm: FormData = {
   pastor_id: '', host_id: '', trainee_id: '', campus_name: '', pco_campus_id: '',
 };
 
-const DAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 
 interface HouseChurchModalProps {
   houseChurch: HouseChurchData | null; // null = create mode
@@ -164,7 +164,7 @@ export default function HouseChurchModal({ houseChurch, members, campuses, onClo
               <label>{t('hc.meetingDay')}</label>
               <select className="form-select" value={form.meeting_day} onChange={(e) => setForm({ ...form, meeting_day: e.target.value })}>
                 <option value="">—</option>
-                {DAYS.map(d => <option key={d} value={d}>{d}</option>)}
+                {MEETING_DAYS.map(d => <option key={d} value={d}>{meetingDayLabel(t, d)}</option>)}
               </select>
             </div>
           </div>
@@ -176,7 +176,7 @@ export default function HouseChurchModal({ houseChurch, members, campuses, onClo
             </div>
             <div className="form-group">
               <label>{t('hc.location')}</label>
-              <input className="form-input" value={form.location} onChange={(e) => setForm({ ...form, location: e.target.value })} placeholder="e.g. Smith Residence" />
+              <input className="form-input" value={form.location} onChange={(e) => setForm({ ...form, location: e.target.value })} placeholder={t('hc.locationPlaceholder')} />
             </div>
           </div>
 

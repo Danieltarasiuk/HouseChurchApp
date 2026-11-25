@@ -1,43 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { requireViewer } from '@/lib/authz';
-
-const SPANISH_BOOK_MAP: Record<string, string> = {
-  'Génesis': 'GEN', 'Genesis': 'GEN',
-  'Deuteronomio': 'DEU',
-  'Josué': 'JOS', 'Josue': 'JOS',
-  'Salmos': 'PSA', 'Salmo': 'PSA',
-  'Proverbios': 'PRO',
-  'Isaías': 'ISA', 'Isaias': 'ISA',
-  'Jeremías': 'JER', 'Jeremias': 'JER',
-  'Lamentaciones': 'LAM',
-  'Ezequiel': 'EZK',
-  'Daniel': 'DAN',
-  'Habacuc': 'HAB',
-  'Zacarías': 'ZEC', 'Zacarias': 'ZEC',
-  'Malaquías': 'MAL', 'Malaquias': 'MAL',
-  'Mateo': 'MAT',
-  'Marcos': 'MRK',
-  'Lucas': 'LUK',
-  'Juan': 'JHN',
-  'Hechos': 'ACT',
-  'Romanos': 'ROM',
-  '1 Corintios': '1CO',
-  '2 Corintios': '2CO',
-  'Gálatas': 'GAL', 'Galatas': 'GAL',
-  'Efesios': 'EPH',
-  'Filipenses': 'PHP',
-  'Colosenses': 'COL',
-  '1 Tesalonicenses': '1TH',
-  '1 Timoteo': '1TI',
-  '2 Timoteo': '2TI',
-  'Tito': 'TIT',
-  'Hebreos': 'HEB',
-  'Santiago': 'JAS',
-  '1 Pedro': '1PE',
-  '2 Pedro': '2PE',
-  '1 Juan': '1JN',
-  'Apocalipsis': 'REV',
-};
+import { spanishBookToUsfm } from '@/lib/spanishBooks';
 
 function spanishRefToPassageId(ref: string): string | null {
   // Parse "Juan 3:16" → "JHN.3.16"
@@ -47,7 +10,7 @@ function spanishRefToPassageId(ref: string): string | null {
   if (!match) return null;
 
   const [, bookName, chapter, verseStart, verseEnd] = match;
-  const usfm = SPANISH_BOOK_MAP[bookName.trim()];
+  const usfm = spanishBookToUsfm(bookName);
   if (!usfm) return null;
 
   if (verseEnd) {

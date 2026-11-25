@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import { useLang } from '@/context/LangContext';
+import { formatDateTime } from '@/lib/formatDate';
 
 export interface PendingUser {
   id: string;
@@ -80,7 +81,7 @@ export function PendingAccounts({
                 <div style={{ fontWeight: 600 }}>{u.name}</div>
                 <div style={{ fontSize: '13px', color: 'var(--text-secondary)', overflowWrap: 'anywhere' }}>{u.email}</div>
                 <div style={{ fontSize: '12px', color: 'var(--text-tertiary)', marginBottom: '8px' }}>
-                  {t('settings.pendingSignedUp').replace('{date}', new Date(u.created_at).toLocaleString(language))}
+                  {t('settings.pendingSignedUp').replace('{date}', formatDateTime(u.created_at, language))}
                 </div>
                 <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'center' }}>
                   <select

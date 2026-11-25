@@ -103,28 +103,28 @@ function cleanText(v: unknown): string | null {
  */
 export function validateCalendarEvent(
   raw: Record<string, unknown>
-): { ok: true; value: CalendarEventInput } | { ok: false; error: string } {
+): { ok: true; value: CalendarEventInput } | { ok: false; error: string; reason: string } {
   const title_en = cleanText(raw.title_en);
-  if (!title_en) return { ok: false, error: 'English title is required' };
-  if (!isCalendarCategory(raw.category)) return { ok: false, error: 'Invalid category' };
-  if (!isISODate(raw.start_date)) return { ok: false, error: 'Invalid start date' };
-  if (!isISODate(raw.end_date)) return { ok: false, error: 'Invalid end date' };
-  if (raw.end_date < raw.start_date) return { ok: false, error: 'End date must be on or after the start date' };
+  if (!title_en) return { ok: false, error: 'English title is required', reason: 'title_required' };
+  if (!isCalendarCategory(raw.category)) return { ok: false, error: 'Invalid category', reason: 'invalid_category' };
+  if (!isISODate(raw.start_date)) return { ok: false, error: 'Invalid start date', reason: 'invalid_start_date' };
+  if (!isISODate(raw.end_date)) return { ok: false, error: 'Invalid end date', reason: 'invalid_end_date' };
+  if (raw.end_date < raw.start_date) return { ok: false, error: 'End date must be on or after the start date', reason: 'end_before_start' };
 
   const start_time = toHHMM(cleanText(raw.start_time));
   const end_time = toHHMM(cleanText(raw.end_time));
   if ((start_time === null) !== (end_time === null)) {
-    return { ok: false, error: 'Start and end time must both be set or both be empty' };
+    return { ok: false, error: 'Start and end time must both be set or both be empty', reason: 'time_pair' };
   }
   if (start_time !== null && (!isHHMM(start_time) || !isHHMM(end_time))) {
-    return { ok: false, error: 'Invalid time' };
+    return { ok: false, error: 'Invalid time', reason: 'invalid_time' };
   }
   if (start_time !== null && raw.start_date === raw.end_date && end_time! <= start_time) {
-    return { ok: false, error: 'End time must be after the start time' };
+    return { ok: false, error: 'End time must be after the start time', reason: 'end_time_before_start' };
   }
 
   const status = raw.status ?? 'scheduled';
-  if (status !== 'scheduled' && status !== 'cancelled') return { ok: false, error: 'Invalid status' };
+  if (status !== 'scheduled' && status !== 'cancelled') return { ok: false, error: 'Invalid status', reason: 'invalid_status' };
 
   return {
     ok: true,

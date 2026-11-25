@@ -39,7 +39,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     for (const key of EDITABLE) if (key in body) merged[key] = body[key];
 
     const v = validateCalendarEvent(merged);
-    if (!v.ok) return NextResponse.json({ error: v.error }, { status: 400 });
+    if (!v.ok) return NextResponse.json({ error: v.error, reason: v.reason }, { status: 400 });
     const e = v.value;
 
     const rows = await sql(

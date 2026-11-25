@@ -5,9 +5,10 @@ import dynamic from 'next/dynamic';
 import { useSession } from 'next-auth/react';
 import { useRouter } from 'next/navigation';
 import { useLang } from '@/context/LangContext';
+import { meetingDayLabel } from '@/lib/formatDate';
 import { Plus, Pencil, ChevronDown, ChevronRight } from 'lucide-react';
 import HouseChurchModal from '@/components/HouseChurchModal';
-import { getHCColor } from '@/lib/map-utils';
+import { getHCColor, escapeHtml } from '@/lib/map-utils';
 import type { MapMarker } from '@/lib/map-utils';
 
 const MapComponent = dynamic(() => import('@/components/MapComponent'), { ssr: false });
@@ -62,7 +63,7 @@ function fmtAddr(street: string | null, city: string | null, state: string | nul
 }
 
 export default function HouseChurchesPage() {
-  const { t, language } = useLang();
+  const { t } = useLang();
   const router = useRouter();
   const { data: session } = useSession();
   const userRole = (session?.user as { role?: string })?.role;
@@ -129,8 +130,8 @@ export default function HouseChurchesPage() {
 
   const mapMarkers: MapMarker[] = useMemo(() => {
     const markers: MapMarker[] = [];
-    const pastorLabel = language === 'es' ? 'Pastor' : 'Pastor';
-    const membersLabel = language === 'es' ? 'miembros' : 'members';
+    const pastorLabel = t('hc.pastor');
+    const membersLabel = t('hc.members');
 
     for (const hc of churches) {
       if (hc.latitude && hc.longitude) {
@@ -141,12 +142,12 @@ export default function HouseChurchesPage() {
           lng: hc.longitude,
           type: 'house_church',
           color,
-          tooltipHtml: `<strong>${hc.name}</strong><br/>${pastorLabel}: ${hc.pastor_name || '—'}<br/>${hc.meeting_day || ''} ${hc.meeting_time || ''}<br/>${hc.member_count} ${membersLabel}`,
+          tooltipHtml: `<strong>${escapeHtml(hc.name)}</strong><br/>${escapeHtml(pastorLabel)}: ${escapeHtml(hc.pastor_name || '—')}<br/>${hc.meeting_day ? escapeHtml(meetingDayLabel(t, hc.meeting_day)) : ''} ${escapeHtml(hc.meeting_time)}<br/>${hc.member_count} ${escapeHtml(membersLabel)}`,
         });
       }
     }
 
-    const noHCLabel = language === 'es' ? 'Sin iglesia en casa' : 'No house church';
+    const noHCLabel = t('mem.noHouseChurch');
     for (const m of members) {
       if (m.latitude && m.longitude) {
         const color = m.house_church_id ? getHCColor(m.house_church_id, allHCIds) : '#9CA3AF';
@@ -157,17 +158,15 @@ export default function HouseChurchesPage() {
           lng: m.longitude,
           type: 'member',
           color,
-          tooltipHtml: `<strong>${m.first_name} ${m.last_name}</strong><br/>${m.house_church_name || noHCLabel}<br/>${addr || '—'}`,
+          tooltipHtml: `<strong>${escapeHtml(`${m.first_name} ${m.last_name}`)}</strong><br/>${escapeHtml(m.house_church_name || noHCLabel)}<br/>${escapeHtml(addr || '—')}`,
         });
       }
     }
 
     return markers;
-  }, [churches, members, allHCIds, language]);
+  }, [churches, members, allHCIds, t]);
 
-  const emptyMsg = language === 'es'
-    ? 'No hay datos de ubicación. Sincroniza desde Planning Center para importar direcciones.'
-    : 'No location data available. Sync from Planning Center to import addresses.';
+  const emptyMsg = t('map.noLocationsSync');
 
   if (loading) {
     return (
@@ -287,7 +286,7 @@ export default function HouseChurchesPage() {
                               <span><strong>{t('hc.pastor')}:</strong> {church.pastor_name}</span>
                             )}
                             {church.meeting_day && (
-                              <span>{church.meeting_day}{church.meeting_time ? ` @ ${church.meeting_time}` : ''}</span>
+                              <span>{meetingDayLabel(t, church.meeting_day)}{church.meeting_time ? ` @ ${church.meeting_time}` : ''}</span>
                             )}
                           </div>
                         </div>

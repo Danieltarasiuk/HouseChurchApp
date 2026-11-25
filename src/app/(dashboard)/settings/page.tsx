@@ -4,6 +4,7 @@ import { Suspense, useState, useEffect, useCallback } from 'react';
 import { useSession } from 'next-auth/react';
 import { useSearchParams } from 'next/navigation';
 import { useLang } from '@/context/LangContext';
+import { formatDateTime } from '@/lib/formatDate';
 import { CloudDownload, Link as LinkIcon, CheckCircle, Trash2 } from 'lucide-react';
 import type { SyncStatus, SyncWarning } from '@/lib/pco';
 import { NoAccess } from '@/components/NoAccess';
@@ -127,9 +128,8 @@ function SettingsContent() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ userId: user.id }),
       });
-      const data = await res.json();
       if (!res.ok) {
-        setError(data.error || t('settings.removeError'));
+        setError(t('settings.removeError'));
         return;
       }
       setUsers(prev => prev.filter(u => u.id !== user.id));
@@ -189,7 +189,7 @@ function SettingsContent() {
 
   const lastSyncText = lastSync
     ? t('settings.pcoLastSync')
-        .replace('{date}', new Date(lastSync.createdAt).toLocaleString(language))
+        .replace('{date}', formatDateTime(lastSync.createdAt, language))
         .replace('{source}', t('settings.pcoSource.' + lastSync.source))
         .replace('{status}', t(SYNC_STATUS_KEY[lastSync.status]))
     : '';
@@ -215,7 +215,7 @@ function SettingsContent() {
 
       if (!res.ok) {
         const data = await res.json().catch(() => ({}));
-        setError(data.reason === 'pending' ? t('settings.approveFirst') : (data.error || t('settings.updateError')));
+        setError(data.reason === 'pending' ? t('settings.approveFirst') : t('settings.updateError'));
         return;
       }
 

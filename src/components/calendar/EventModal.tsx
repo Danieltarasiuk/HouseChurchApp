@@ -159,7 +159,9 @@ export function EventModal({
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
-        setError(data.error || t('cal.error'));
+        // Translate the server's reason code; its English text is never shown.
+        const key = data.reason ? `cal.err.${data.reason}` : '';
+        setError(key && t(key) !== key ? t(key) : t('cal.error'));
         return null;
       }
       const ev = data.event as CalendarEvent | undefined;

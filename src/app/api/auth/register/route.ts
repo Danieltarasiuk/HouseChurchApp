@@ -10,7 +10,7 @@ export async function POST(request: Request) {
     body = await request.json();
   } catch {
     return NextResponse.json(
-      { error: 'Invalid request body' },
+      { error: 'Invalid request body', reason: 'invalid_body' },
       { status: 400 }
     );
   }
@@ -20,28 +20,28 @@ export async function POST(request: Request) {
 
     if (!name || !email || !password) {
       return NextResponse.json(
-        { error: 'Name, email, and password are required' },
+        { error: 'Name, email, and password are required', reason: 'missing_fields' },
         { status: 400 }
       );
     }
 
     if (typeof name !== 'string' || name.trim().length === 0 || name.length > 100) {
       return NextResponse.json(
-        { error: 'Name must be between 1 and 100 characters' },
+        { error: 'Name must be between 1 and 100 characters', reason: 'invalid_name' },
         { status: 400 }
       );
     }
 
     if (typeof email !== 'string' || !EMAIL_REGEX.test(email)) {
       return NextResponse.json(
-        { error: 'A valid email address is required' },
+        { error: 'A valid email address is required', reason: 'invalid_email' },
         { status: 400 }
       );
     }
 
     if (typeof password !== 'string' || password.length < 8) {
       return NextResponse.json(
-        { error: 'Password must be at least 8 characters' },
+        { error: 'Password must be at least 8 characters', reason: 'weak_password' },
         { status: 400 }
       );
     }
@@ -58,7 +58,7 @@ export async function POST(request: Request) {
 
     if (result.length === 0) {
       return NextResponse.json(
-        { error: 'An account with this email already exists' },
+        { error: 'An account with this email already exists', reason: 'email_exists' },
         { status: 409 }
       );
     }
@@ -67,7 +67,7 @@ export async function POST(request: Request) {
   } catch (error) {
     console.error('Registration error:', error);
     return NextResponse.json(
-      { error: 'Registration failed. Please try again.' },
+      { error: 'Registration failed. Please try again.', reason: 'registration_failed' },
       { status: 500 }
     );
   }

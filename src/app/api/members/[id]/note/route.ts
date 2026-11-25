@@ -33,7 +33,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
   const trimmed = body.attendance_note.trim();
   if (trimmed.length > MAX_NOTE_LENGTH) {
     return NextResponse.json(
-      { error: `Note must be ${MAX_NOTE_LENGTH} characters or fewer` },
+      { error: `Note must be ${MAX_NOTE_LENGTH} characters or fewer`, reason: 'too_long', max: MAX_NOTE_LENGTH },
       { status: 400 }
     );
   }

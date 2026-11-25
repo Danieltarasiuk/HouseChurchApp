@@ -85,7 +85,10 @@ export async function GET(req: NextRequest) {
           { status: 400 }
         );
       }
-      return NextResponse.json({ error: error.message }, { status: error.status === 404 ? 404 : 502 });
+      return NextResponse.json(
+        { error: error.message, reason: error.status === 404 ? 'event_not_found' : 'pco_unavailable' },
+        { status: error.status === 404 ? 404 : 502 }
+      );
     }
     console.error('PCO check-ins error:', error);
     return NextResponse.json({ error: 'Failed to load check-ins' }, { status: 500 });

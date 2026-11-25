@@ -50,7 +50,7 @@ export async function POST(req: NextRequest) {
   }
 
   const v = validateCalendarEvent(body);
-  if (!v.ok) return NextResponse.json({ error: v.error }, { status: 400 });
+  if (!v.ok) return NextResponse.json({ error: v.error, reason: v.reason }, { status: 400 });
   const e = v.value;
 
   let row: CalendarEventRow;

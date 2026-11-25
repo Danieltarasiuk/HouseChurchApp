@@ -126,7 +126,7 @@ export function Sidebar() {
         <button
           className="mobile-menu-btn"
           onClick={() => setMobileOpen(true)}
-          aria-label="Open menu"
+          aria-label={t('nav.openMenu')}
         >
           <Menu size={24} />
         </button>
@@ -160,7 +160,7 @@ export function Sidebar() {
         <button
           className="mobile-close-btn"
           onClick={() => setMobileOpen(false)}
-          aria-label="Close menu"
+          aria-label={t('nav.closeMenu')}
         >
           <X size={20} />
         </button>
