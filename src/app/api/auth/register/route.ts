@@ -1,7 +1,6 @@
 import { NextResponse } from 'next/server';
 import bcryptjs from 'bcryptjs';
 import { sql } from '@/lib/db';
-import { linkOrCreateMember } from '@/lib/memberLink';
 
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
@@ -51,7 +50,9 @@ export async function POST(request: Request) {
     const passwordHash = await bcryptjs.hash(password, 12);
 
     const result = await sql(
-      'INSERT INTO users (name, email, password_hash) VALUES ($1, $2, $3) ON CONFLICT (email) DO NOTHING RETURNING id',
+      // 'pending': nothing proves this person owns the email, so the account
+      // is never linked to a member by it. An admin approves and links it.
+      "INSERT INTO users (name, email, password_hash, status) VALUES ($1, $2, $3, 'pending') ON CONFLICT (email) DO NOTHING RETURNING id",
       [name.trim(), email.toLowerCase().trim(), passwordHash]
     );
 
@@ -61,9 +62,6 @@ export async function POST(request: Request) {
         { status: 409 }
       );
     }
-
-    // Same as a first Google sign-in: link this email's member, or create one.
-    await linkOrCreateMember(result[0].id, email, name.trim());
 
     return NextResponse.json({ success: true });
   } catch (error) {

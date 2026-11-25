@@ -164,7 +164,8 @@ export default function PrayerPage() {
         setOnBehalf(false);
         setShowForm(false);
       } else {
-        setFormError(data.error || t('pray.submitError'));
+        // Server text is English and may be technical; show our own.
+        setFormError(t(res.status === 403 ? 'pray.forbiddenOnBehalf' : 'pray.submitError'));
       }
     } catch {
       setFormError(t('pray.submitError'));

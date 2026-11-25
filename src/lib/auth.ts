@@ -5,7 +5,7 @@ import bcryptjs from 'bcryptjs';
 import { sql } from '@/lib/db';
 import { authConfig } from '@/lib/auth.config';
 import { isProtectedPath } from '@/lib/protected-paths';
-import { linkOrCreateMember } from '@/lib/memberLink';
+import { googleSignIn } from '@/lib/memberLink';
 
 /**
  * How long a role cached in the JWT is trusted before it is re-read from the
@@ -34,7 +34,7 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         const password = credentials.password as string;
 
         const rows = await sql(
-          'SELECT id, email, password_hash, name, role FROM users WHERE email = $1',
+          'SELECT id, email, password_hash, name, role, status FROM users WHERE email = $1',
           [email]
         );
 
@@ -60,6 +60,7 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
           email: user.email,
           name: user.name,
           role: user.role,
+          status: user.status,
         };
       },
     }),
@@ -82,27 +83,10 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         const email = user.email.toLowerCase().trim();
 
         try {
-          const existing = await sql(
-            'SELECT id, role, password_hash FROM users WHERE email = $1',
-            [email]
-          );
-
-          if (existing.length === 0) {
-            // Auto-create user on first Google sign-in (NULL password_hash).
-            // name is NOT NULL, so fall back to the email local part.
-            const result = await sql(
-              "INSERT INTO users (email, name, password_hash, role) VALUES ($1, $2, NULL, 'member') RETURNING id, role",
-              [email, user.name?.trim() || email.split('@')[0]]
-            );
-            user.id = result[0].id;
-            (user as { role?: string }).role = result[0].role;
-
-            await linkOrCreateMember(result[0].id, email, user.name);
-          } else {
-            // Allow Google sign-in for existing accounts (links Google to existing account)
-            user.id = existing[0].id;
-            (user as { role?: string }).role = existing[0].role;
-          }
+          const account = await googleSignIn(email, user.name);
+          user.id = account.id;
+          (user as { role?: string }).role = account.role;
+          (user as { status?: string }).status = account.status;
         } catch (error) {
           console.error('Google sign-in error:', error);
           return false;
@@ -114,6 +98,7 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
       // Sign-in: seed the token from the freshly authenticated user.
       if (user) {
         token.role = (user as { role?: string }).role;
+        token.status = (user as { status?: string }).status ?? 'active';
         token.id = user.id;
         token.roleCheckedAt = Date.now();
         return token;
@@ -129,7 +114,7 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
       if (!isStale && trigger !== 'update') return token;
 
       try {
-        const rows = await sql('SELECT role FROM users WHERE id = $1', [token.id]);
+        const rows = await sql('SELECT role, status FROM users WHERE id = $1', [token.id]);
 
         if (rows.length === 0) {
           // The account no longer exists — end the session rather than keep
@@ -138,6 +123,7 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         }
 
         token.role = rows[0].role;
+        token.status = rows[0].status;
         token.roleCheckedAt = Date.now();
       } catch (error) {
         // A transient database problem must not sign everyone out. Keep the
@@ -151,6 +137,7 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
     async session({ session, token }) {
       if (session.user) {
         (session.user as { role?: string }).role = token.role as string;
+        (session.user as { status?: string }).status = (token.status as string) ?? 'active';
         session.user.id = token.id as string;
       }
       return session;

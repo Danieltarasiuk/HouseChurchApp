@@ -25,7 +25,13 @@ CREATE TABLE IF NOT EXISTS users (
   role VARCHAR(50) DEFAULT 'member' CHECK (role IN ('member', 'house_church_pastor', 'admin')),
   language VARCHAR(2) DEFAULT 'en' CHECK (language IN ('en', 'es')),
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-  updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+  updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+  -- 'pending': an email/password sign-up waiting for an admin to approve it
+  -- and link it to a member (nothing proves they own the email). Pending
+  -- accounts are always plain members, so no role check can let one through.
+  status TEXT NOT NULL DEFAULT 'active',
+  CONSTRAINT users_status_check CHECK (status IN ('active', 'pending')),
+  CONSTRAINT users_pending_is_member_check CHECK (status = 'active' OR role = 'member')
 );
 
 -- House Churches

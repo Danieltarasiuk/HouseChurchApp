@@ -335,7 +335,7 @@ export default function PastoralPage() {
         setPrayerSaved(true);
         setTimeout(() => setPrayerSaved(false), 2000);
       } else {
-        setPrayerError(data.error || t('pray.submitError'));
+        setPrayerError(t(res.status === 403 ? 'pray.forbiddenOnBehalf' : 'pray.submitError'));
       }
     } catch {
       setPrayerError(t('pray.submitError'));
