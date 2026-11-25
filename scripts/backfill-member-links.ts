@@ -18,6 +18,7 @@
  * exact host in DATABASE_URL, so the target is always a deliberate choice.
  */
 import { loadEnvConfig } from '@next/env';
+import { checkConnectionString } from '../src/lib/connectionString';
 
 loadEnvConfig(process.cwd());
 
@@ -30,7 +31,7 @@ async function main() {
 
   const url = process.env.DATABASE_URL;
   if (!url) throw new Error('DATABASE_URL is not set');
-  const host = new URL(url).host;
+  const host = checkConnectionString(url).host;
   console.log(`database host: ${host}`);
   console.log(apply ? 'mode: APPLY (writes)' : 'mode: dry run (writes nothing)');
 

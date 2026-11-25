@@ -12,6 +12,7 @@
  * people it creates have no password: nobody can sign in as them.
  */
 import { loadEnvConfig } from '@next/env';
+import { checkConnectionString } from '../src/lib/connectionString';
 import { randomUUID } from 'node:crypto';
 
 loadEnvConfig(process.cwd());
@@ -19,7 +20,7 @@ loadEnvConfig(process.cwd());
 async function main() {
   const url = process.env.DATABASE_URL;
   if (!url) throw new Error('DATABASE_URL is not set');
-  const host = new URL(url).host;
+  const host = checkConnectionString(url).host;
   const hostArg = process.argv.find((a) => a.startsWith('--host='))?.slice('--host='.length);
   console.log(`database host: ${host}`);
   if (hostArg !== host) {

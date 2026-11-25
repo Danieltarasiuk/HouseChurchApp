@@ -186,6 +186,19 @@ async function applyTimeouts(c) {
   await c.query("SET LOCAL lock_timeout = '10s'");
 }
 
+/** An error message with the connection string and its password taken out. */
+function hideSecret(text, url) {
+  let out = String(text).split(url).join('<connection string>');
+  try {
+    const { password } = new URL(url);
+    if (password) {
+      out = out.split(password).join('***');
+      out = out.split(decodeURIComponent(password)).join('***');
+    }
+  } catch { /* unparseable, or not percent-encoded: what could be removed is */ }
+  return out;
+}
+
 async function connect(url, label) {
   try {
     const c = new Client(url);
@@ -198,7 +211,7 @@ async function connect(url, label) {
     // A malformed or unreachable URL is a configuration problem, not drift.
     // Say so plainly instead of dumping a driver stack trace into CI.
     console.error(`Could not connect to the ${label} database.`);
-    console.error(`  ${e.message}`);
+    console.error(`  ${hideSecret(e.message, url)}`);
     console.error('\nCheck that the connection string is complete and valid.');
     console.error('In CI these are repository secrets.');
     process.exit(2);
