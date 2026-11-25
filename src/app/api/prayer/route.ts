@@ -91,9 +91,9 @@ export async function POST(request: Request) {
     const me = await sql('SELECT name FROM users WHERE id = $1', [viewer.userId]);
     return NextResponse.json({ prayer: { ...result[0], requester_name: me[0]?.name ?? null, member_name: memberName } });
   } catch (error) {
+    // Log the real error; never send database text to the browser.
     console.error('Create prayer error:', error);
-    const msg = error instanceof Error ? error.message : 'Failed to create prayer request';
-    return NextResponse.json({ error: msg }, { status: 500 });
+    return NextResponse.json({ error: 'Failed to create prayer request', reason: 'save_failed' }, { status: 500 });
   }
 }
 

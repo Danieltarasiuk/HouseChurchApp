@@ -24,6 +24,31 @@ export function splitName(name: string | null | undefined, email: string): { fir
 export type LinkOutcome = 'linked' | 'created' | 'email_taken' | 'failed';
 
 /**
+ * The database side of a Google sign-in. A first sign-in creates an active
+ * user and links (or creates) their member by email, which is safe because
+ * Google has verified the address. Email/password registration must never do
+ * this: it creates a pending account that an admin approves and links.
+ * An existing account signs in as it is (a pending one stays pending).
+ */
+export async function googleSignIn(
+  email: string,
+  name: string | null | undefined
+): Promise<{ id: string; role: string; status: string }> {
+  const normalized = email.toLowerCase().trim();
+  const existing = await sql('SELECT id, role, status FROM users WHERE email = $1', [normalized]);
+  if (existing.length > 0) {
+    return { id: existing[0].id, role: existing[0].role, status: existing[0].status };
+  }
+  // name is NOT NULL, so fall back to the email local part.
+  const created = await sql(
+    "INSERT INTO users (email, name, password_hash, role, status) VALUES ($1, $2, NULL, 'member', 'active') RETURNING id, role, status",
+    [normalized, name?.trim() || normalized.split('@')[0]]
+  );
+  await linkOrCreateMember(created[0].id, normalized, name);
+  return { id: created[0].id, role: created[0].role, status: created[0].status };
+}
+
+/**
  * Never throws: a failure here must not block sign-in or registration, since
  * the users row is already committed and auth does not depend on members.
  */

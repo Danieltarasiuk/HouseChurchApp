@@ -1,13 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/lib/auth';
 import { sql } from '@/lib/db';
+import { requireViewer } from '@/lib/authz';
 import { geocodeHouseChurchAsync } from '@/lib/geocode';
 
 export async function GET() {
-  const session = await auth();
-  if (!session?.user) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-  }
+  const { error } = await requireViewer();
+  if (error) return error;
 
   try {
     const churches = await sql(

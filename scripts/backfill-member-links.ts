@@ -1,20 +1,24 @@
 /**
- * One-off backfill: give every existing user without a members row one,
- * exactly as a first sign-in or registration now does (src/lib/memberLink.ts):
- * link the unlinked member with the same email, or create one. A user whose
- * email belongs to a member already linked to someone else is reported and
- * left alone.
+ * One-off backfill: give existing users without a members row one.
+ *
+ * Only accounts created by Google sign-in (no password: Google verified the
+ * email) are linked by email, exactly as a first Google sign-in does
+ * (src/lib/memberLink.ts): link the unlinked member with the same email, or
+ * create one. Accounts with a password signed up by email, which proves
+ * nothing about owning the address, so they are listed as "needs admin
+ * approval" and never linked here; approve them in Settings.
  *
  *   npm run backfill:member-links                          # dry run: report only
  *   npm run backfill:member-links -- --apply --host=<host> # write
  *
- * DO NOT run with --apply against production without reviewing the dry run
- * first. --apply refuses to run unless --host names the exact host in
- * DATABASE_URL, so the target is always a deliberate choice.
+ * Review the dry run first. --apply refuses to run unless --host names the
+ * exact host in DATABASE_URL, so the target is always a deliberate choice.
  */
 import { loadEnvConfig } from '@next/env';
 
 loadEnvConfig(process.cwd());
+
+type Plan = 'link' | 'create' | 'skip_email_taken' | 'needs_admin_approval';
 
 async function main() {
   const apply = process.argv.includes('--apply');
@@ -36,9 +40,13 @@ async function main() {
   const { linkOrCreateMember } = await import('../src/lib/memberLink');
 
   const users = await sql(
-    `SELECT u.id, u.email, u.name,
+    `SELECT u.id, u.email, u.name, u.status, u.created_at,
+            (u.password_hash IS NULL) AS google_only,
             (SELECT m.id FROM members m WHERE LOWER(m.email) = LOWER(u.email) AND m.user_id IS NULL
              ORDER BY m.joined_at NULLS LAST LIMIT 1) AS linkable_member,
+            (SELECT m.first_name || ' ' || m.last_name FROM members m
+             WHERE LOWER(m.email) = LOWER(u.email) AND m.user_id IS NULL
+             ORDER BY m.joined_at NULLS LAST LIMIT 1) AS linkable_member_name,
             EXISTS (SELECT 1 FROM members m WHERE LOWER(m.email) = LOWER(u.email)) AS email_in_members
      FROM users u
      WHERE NOT EXISTS (SELECT 1 FROM members m WHERE m.user_id = u.id)
@@ -50,17 +58,35 @@ async function main() {
     return;
   }
 
+  const plan = (u: Record<string, unknown>): Plan =>
+    !u.google_only ? 'needs_admin_approval'
+      : u.linkable_member ? 'link'
+      : u.email_in_members ? 'skip_email_taken'
+      : 'create';
+
+  const why: Record<Plan, string> = {
+    link: 'Google account; unlinked member with the same email',
+    create: 'Google account; no member has this email',
+    skip_email_taken: "Google account; this email's member is already linked to another account",
+    needs_admin_approval: 'signed up with email and password; email not verified, approve in Settings',
+  };
+
   const counts: Record<string, number> = {};
-  console.log(`\n${users.length} user(s) without a members row:`);
+  console.log(`\n${users.length} user(s) without a members row:\n`);
   for (const u of users) {
-    const expected = u.linkable_member ? 'linked' : u.email_in_members ? 'email_taken' : 'created';
-    const outcome = apply ? await linkOrCreateMember(u.id, u.email, u.name) : expected;
+    const p = plan(u);
+    let outcome: string = p;
+    if (apply && (p === 'link' || p === 'create')) {
+      outcome = await linkOrCreateMember(u.id, u.email, u.name);
+    }
     counts[outcome] = (counts[outcome] ?? 0) + 1;
-    const verb = apply ? outcome : `would be ${expected}`;
-    console.log(`  ${u.email.replace(/(^.).*(@.*$)/, '$1…$2')}: ${verb}`);
+    const created = new Date(u.created_at).toISOString().slice(0, 16).replace('T', ' ');
+    const target = p === 'link' ? ` -> member ${u.linkable_member} (${u.linkable_member_name})` : '';
+    console.log(`  ${u.email}  [created ${created} UTC, status ${u.status}]`);
+    console.log(`    ${apply ? outcome : `would: ${p}`}${target}  (${why[p]})`);
   }
   console.log('\nsummary:', counts);
-  if (!apply) console.log('\nDry run only. Re-run with --apply --host=<host> to write.');
+  if (!apply) console.log('\nDry run only. Re-run with --apply --host=<host> to write. Email sign-ups are never linked here.');
 }
 
 main().catch((e) => {

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { auth } from '@/lib/auth';
 import { sql } from '@/lib/db';
+import { requireViewer, forbidden, leadsMemberIn, leaderHcScope, memberHouseChurches, LEADER_ROLES } from '@/lib/authz';
 
 /** Normalize a Postgres DATE value (Date object or ISO string) to 'YYYY-MM-DD' */
 function toDateStr(v: unknown): string {
@@ -9,17 +9,16 @@ function toDateStr(v: unknown): string {
 }
 
 export async function GET(req: NextRequest) {
-  const session = await auth();
-  if (!session?.user?.id) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-  }
-
-  const userRole = (session.user as { role?: string }).role;
-  if (userRole !== 'admin' && userRole !== 'house_church_pastor') {
-    return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
-  }
+  const { viewer, error } = await requireViewer({ roles: LEADER_ROLES });
+  if (error) return error;
 
   const memberId = req.nextUrl.searchParams.get('member_id');
+  // Pastors: members of their own house church only (admins: everyone).
+  if (memberId) {
+    const hcs = await memberHouseChurches([memberId]);
+    if (!hcs.has(memberId) || !leadsMemberIn(viewer, hcs.get(memberId))) return forbidden();
+  }
+  const scope = leaderHcScope(viewer);
 
   try {
     let meetings;
@@ -43,7 +42,7 @@ export async function GET(req: NextRequest) {
       meetings = rows.map((r: Record<string, string>) => ({
         ...r,
         meeting_date: toDateStr(r.meeting_date),
-        notes: r.pastor_id === session.user!.id ? r.notes : null,
+        notes: r.pastor_id === viewer.userId ? r.notes : null,
       }));
     } else {
       // Default: return only the current pastor's meetings
@@ -55,8 +54,9 @@ export async function GET(req: NextRequest) {
          JOIN members m ON pm.member_id = m.id
          LEFT JOIN users u ON pm.pastor_id = u.id
          WHERE pm.pastor_id = $1
+           AND ($2::text[] IS NULL OR m.house_church_id::text = ANY($2::text[]))
          ORDER BY pm.meeting_date DESC`,
-        [session.user.id]
+        [viewer.userId, scope]
       );
       meetings = rows.map((r: Record<string, string>) => ({
         ...r,
@@ -72,15 +72,8 @@ export async function GET(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
-  const session = await auth();
-  if (!session?.user?.id) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-  }
-
-  const userRole = (session.user as { role?: string }).role;
-  if (userRole !== 'admin' && userRole !== 'house_church_pastor') {
-    return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
-  }
+  const { viewer, error } = await requireViewer({ roles: LEADER_ROLES });
+  if (error) return error;
 
   try {
     const { member_id, topic_key, meeting_date, notes } = await req.json();
@@ -89,11 +82,14 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'member_id, topic_key, and meeting_date are required' }, { status: 400 });
     }
 
+    const hcs = await memberHouseChurches([String(member_id)]);
+    if (!hcs.has(String(member_id)) || !leadsMemberIn(viewer, hcs.get(String(member_id)))) return forbidden();
+
     const result = await sql(
       `INSERT INTO pastoral_meetings (pastor_id, member_id, topic_key, meeting_date, notes)
        VALUES ($1, $2, $3, $4, $5)
        RETURNING id, pastor_id, member_id, topic_key, meeting_date, notes, created_at`,
-      [session.user.id, member_id, topic_key, meeting_date, notes || null]
+      [viewer.userId, member_id, topic_key, meeting_date, notes || null]
     );
 
     const meeting = { ...result[0], meeting_date: toDateStr(result[0].meeting_date) };

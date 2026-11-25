@@ -29,7 +29,11 @@ export const PROTECTED_PATHS = [
   '/calendar',
   '/settings',
   '/profile',
+  '/pending',
 ] as const;
+
+/** Where a signed-in account waiting for admin approval is sent. */
+export const PENDING_PATH = '/pending';
 
 /**
  * True when `pathname` is a protected route or one of its sub-routes.

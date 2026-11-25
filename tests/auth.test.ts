@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeAll, beforeEach, afterEach, vi } from 'vitest';
 import { current, setupTestDb, mockedSql } from './helpers/db';
-import { seedChurch, U, M } from './helpers/fixtures';
+import { seedChurch, U } from './helpers/fixtures';
 
 vi.mock('@/lib/db', () => ({ sql: (text: string, params?: unknown[]) => mockedSql(text, params) }));
 
@@ -81,35 +81,3 @@ describe('Planning Center OAuth state', () => {
   });
 });
 
-describe('registration gives the new user a member record', () => {
-  const register = async (email: string, name = 'New Person') => {
-    const { POST } = await import('@/app/api/auth/register/route');
-    return POST(new Request('http://localhost/api/auth/register', {
-      method: 'POST', body: JSON.stringify({ name, email, password: 'long-enough-password' }),
-    }));
-  };
-
-  it('links an existing unlinked member with the same email', async () => {
-    await sql(`UPDATE members SET user_id = NULL, email = 'Shared@Example.test' WHERE id = $1`, [M.A2]);
-    expect((await register('shared@example.test')).status).toBe(200);
-    const [user] = await sql(`SELECT id FROM users WHERE email = 'shared@example.test'`);
-    const linked = await sql('SELECT id FROM members WHERE user_id = $1', [user.id]);
-    expect(linked).toEqual([{ id: M.A2 }]);
-  });
-
-  it('creates a member when no member has that email', async () => {
-    expect((await register('brand.new@example.test', 'Brand New')).status).toBe(200);
-    const rows = await sql(
-      `SELECT m.first_name, m.last_name, m.house_church_id FROM members m
-       JOIN users u ON u.id = m.user_id WHERE u.email = 'brand.new@example.test'`
-    );
-    expect(rows).toEqual([{ first_name: 'Brand', last_name: 'New', house_church_id: null }]);
-  });
-
-  it("does not take over a member already linked to someone else", async () => {
-    expect((await register('a1@example.test')).status).toBe(200); // A1's email, A1 is linked
-    const [user] = await sql(`SELECT id FROM users WHERE email = 'a1@example.test' AND id <> $1`, [U.memberA1]);
-    expect(await sql('SELECT id FROM members WHERE user_id = $1', [user.id])).toEqual([]);
-    expect((await sql('SELECT user_id FROM members WHERE id = $1', [M.A1]))[0].user_id).toBe(U.memberA1);
-  });
-});

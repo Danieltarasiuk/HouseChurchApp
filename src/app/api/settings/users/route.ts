@@ -17,9 +17,25 @@ export async function GET() {
 
   try {
     const users = await sql(
-      'SELECT id, name, email, role FROM users ORDER BY name ASC'
+      `SELECT u.id, u.name, u.email, u.role, u.status, u.created_at,
+              CASE WHEN u.password_hash IS NULL THEN 'google' ELSE 'email' END AS signup_method,
+              -- Pending accounts: the unlinked member with the same email, if
+              -- any, as the suggested match. The admin still decides.
+              (SELECT m.id FROM members m
+               WHERE u.status = 'pending' AND m.user_id IS NULL AND m.is_active = true
+                 AND LOWER(m.email) = LOWER(u.email)
+               ORDER BY m.joined_at NULLS LAST LIMIT 1) AS suggested_member_id
+       FROM users u
+       ORDER BY (u.status = 'pending') DESC, u.name ASC`
     );
-    return NextResponse.json({ users });
+    // Members an approval can link to: active and not linked to an account.
+    const linkableMembers = await sql(
+      `SELECT m.id, m.first_name, m.last_name, m.email, hc.name AS house_church_name
+       FROM members m LEFT JOIN house_churches hc ON hc.id = m.house_church_id
+       WHERE m.user_id IS NULL AND m.is_active = true
+       ORDER BY m.first_name, m.last_name`
+    );
+    return NextResponse.json({ users, linkableMembers });
   } catch (error) {
     console.error('Settings users error:', error);
     return NextResponse.json({ error: 'Failed to load users' }, { status: 500 });
@@ -56,8 +72,15 @@ export async function PATCH(request: Request) {
   }
 
   try {
+    // A pending account must be approved first (it stays a plain member until
+    // then; the database enforces this too).
+    const pending = await sql("SELECT 1 FROM users WHERE id = $1 AND status = 'pending'", [userId]);
+    if (pending.length > 0) {
+      return NextResponse.json({ error: 'Approve this account before changing its role', reason: 'pending' }, { status: 409 });
+    }
+
     const result = await sql(
-      'UPDATE users SET role = $1 WHERE id = $2 RETURNING id, name, email, role',
+      'UPDATE users SET role = $1 WHERE id = $2 RETURNING id, name, email, role, status',
       [role, userId]
     );
 

@@ -8,6 +8,7 @@ import { CloudDownload, Link as LinkIcon, CheckCircle, Trash2 } from 'lucide-rea
 import type { SyncStatus, SyncWarning } from '@/lib/pco';
 import { NoAccess } from '@/components/NoAccess';
 import { PrivacyControls } from '@/components/PrivacyControls';
+import { PendingAccounts, type LinkableMember } from '@/components/PendingAccounts';
 
 const SYNC_STATUS_KEY: Record<SyncStatus, string> = {
   ok: 'settings.pcoSyncOk',
@@ -20,6 +21,9 @@ interface User {
   name: string;
   email: string;
   role: string;
+  status: 'active' | 'pending';
+  created_at: string;
+  suggested_member_id: string | null;
 }
 
 interface LastSync {
@@ -68,6 +72,7 @@ function SettingsContent() {
   const [success, setSuccess] = useState('');
   const [search, setSearch] = useState('');
   const [removing, setRemoving] = useState<string | null>(null);
+  const [linkableMembers, setLinkableMembers] = useState<LinkableMember[]>([]);
 
   // Planning Center state
   const [pcoConnected, setPcoConnected] = useState(false);
@@ -89,6 +94,7 @@ function SettingsContent() {
       }
       const data = await res.json();
       setUsers(data.users);
+      setLinkableMembers(data.linkableMembers || []);
     } catch {
       setError(t('settings.loadError'));
     } finally {
@@ -203,7 +209,7 @@ function SettingsContent() {
 
       if (!res.ok) {
         const data = await res.json().catch(() => ({}));
-        setError(data.error || t('settings.updateError'));
+        setError(data.reason === 'pending' ? t('settings.approveFirst') : (data.error || t('settings.updateError')));
         return;
       }
 
@@ -384,6 +390,13 @@ function SettingsContent() {
         />
       </div>
 
+      {/* Email sign-ups waiting for an admin to approve and link them */}
+      <PendingAccounts
+        users={users.filter((u) => u.status === 'pending')}
+        members={linkableMembers}
+        onApproved={fetchUsers}
+      />
+
       {/* User Roles */}
       <div className="card">
         <div className="card-header">
@@ -433,6 +446,7 @@ function SettingsContent() {
                           <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                             {user.name || '—'}
                             {isSelf && <span className="badge badge-you">{t('settings.you')}</span>}
+                            {user.status === 'pending' && <span className="badge badge-you">{t('settings.statusPending')}</span>}
                           </div>
                         </td>
                         <td>{user.email}</td>
@@ -442,7 +456,7 @@ function SettingsContent() {
                           </span>
                         </td>
                         <td>
-                          {isSelf ? (
+                          {isSelf || user.status === 'pending' ? (
                             <span style={{ fontSize: '13px', color: 'var(--text-tertiary)' }}>—</span>
                           ) : (
                             <select

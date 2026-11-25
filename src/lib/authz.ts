@@ -22,6 +22,8 @@ export interface Viewer {
    * member). Only for the house_church_pastor role; empty for everyone else.
    */
   pastoredHcIds: string[];
+  /** 'pending' = an email sign-up an admin has not approved yet. */
+  status: 'active' | 'pending';
 }
 
 const ROLES: Role[] = ['admin', 'house_church_pastor', 'member'];
@@ -29,6 +31,11 @@ const ROLES: Role[] = ['admin', 'house_church_pastor', 'member'];
 /** Builds the Viewer for a user id and session role (exported for tests). */
 export async function loadViewer(userId: string, role: string | undefined): Promise<Viewer> {
   const safeRole: Role = ROLES.includes(role as Role) ? (role as Role) : 'member';
+
+  // Status is read from the database on every request, not trusted from the
+  // session token, so an approval or a new pending sign-up applies at once.
+  const account = await sql('SELECT status FROM users WHERE id = $1', [userId]);
+  const status: Viewer['status'] = account[0]?.status === 'active' ? 'active' : 'pending';
 
   const own = await sql(
     `SELECT id, house_church_id FROM members
@@ -49,7 +56,8 @@ export async function loadViewer(userId: string, role: string | undefined): Prom
 
   return {
     userId,
-    role: safeRole,
+    role: status === 'active' ? safeRole : 'member',
+    status,
     memberId: own[0]?.id ?? null,
     houseChurchId: own[0]?.house_church_id ?? null,
     pastoredHcIds: pastored.map((r) => String(r.id)),
@@ -64,7 +72,7 @@ export type ViewerResult =
  * The signed-in viewer, or a 401/403 response to return as-is.
  * `roles` limits which roles may proceed.
  */
-export async function requireViewer(opts: { roles?: Role[] } = {}): Promise<ViewerResult> {
+export async function requireViewer(opts: { roles?: Role[]; allowPending?: boolean } = {}): Promise<ViewerResult> {
   const session = await auth();
   const userId = session?.user?.id;
   if (!userId) {
@@ -74,7 +82,13 @@ export async function requireViewer(opts: { roles?: Role[] } = {}): Promise<View
   if (opts.roles && !opts.roles.includes(role as Role)) {
     return { error: NextResponse.json({ error: 'Forbidden' }, { status: 403 }) };
   }
-  return { viewer: await loadViewer(userId, role) };
+  const viewer = await loadViewer(userId, role);
+  // A pending account gets no member data, directory or prayer requests:
+  // every route behind requireViewer refuses it (a missing users row too).
+  if (viewer.status !== 'active' && !opts.allowPending) {
+    return { error: NextResponse.json({ error: 'Account pending approval', reason: 'account_pending' }, { status: 403 }) };
+  }
+  return { viewer };
 }
 
 export const forbidden = () => NextResponse.json({ error: 'Forbidden' }, { status: 403 });
