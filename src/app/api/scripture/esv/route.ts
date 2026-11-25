@@ -1,6 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { requireViewer } from '@/lib/authz';
 
 export async function GET(req: NextRequest) {
+  // Signed-in only: this proxies a paid API with the church's key.
+  const { error } = await requireViewer();
+  if (error) return error;
+
   const ref = req.nextUrl.searchParams.get('ref');
   if (!ref) {
     return NextResponse.json({ error: 'Missing ref parameter' }, { status: 400 });

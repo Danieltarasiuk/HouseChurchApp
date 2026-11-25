@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { auth } from '@/lib/auth';
 import { sql } from '@/lib/db';
+import { requireViewer, leaderHcScope, LEADER_ROLES } from '@/lib/authz';
 import {
   getPcoSyncUserId,
   getValidPcoToken,
@@ -29,14 +29,9 @@ function isMinor(dob: unknown): boolean {
  * still saves.
  */
 export async function GET(req: NextRequest) {
-  const session = await auth();
-  if (!session?.user) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-  }
-  const role = (session.user as { role?: string }).role;
-  if (role !== 'admin' && role !== 'house_church_pastor') {
-    return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
-  }
+  const { viewer, error } = await requireViewer({ roles: LEADER_ROLES });
+  if (error) return error;
+  const scope = leaderHcScope(viewer);
 
   const date = req.nextUrl.searchParams.get('date') || '';
   if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
@@ -45,7 +40,7 @@ export async function GET(req: NextRequest) {
 
   try {
     // Pastors have no PCO connection of their own; use the connected admin's.
-    const tokenUserId = role === 'admin' ? session.user.id! : await getPcoSyncUserId();
+    const tokenUserId = viewer.role === 'admin' ? viewer.userId : await getPcoSyncUserId();
     if (!tokenUserId) {
       return NextResponse.json({ error: PCO_ERROR_MESSAGES.not_connected, reason: 'not_connected' }, { status: 400 });
     }
@@ -63,8 +58,11 @@ export async function GET(req: NextRequest) {
 
     const rows = ids.length
       ? await sql(
-          `SELECT id, date_of_birth FROM members WHERE is_active = true AND pco_id = ANY($1::text[])`,
-          [ids]
+          // Pastors only get members of their own house church.
+          `SELECT id, date_of_birth FROM members
+           WHERE is_active = true AND pco_id = ANY($1::text[])
+             AND ($2::text[] IS NULL OR house_church_id::text = ANY($2::text[]))`,
+          [ids, scope]
         )
       : [];
 

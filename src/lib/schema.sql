@@ -259,6 +259,31 @@ CREATE TABLE IF NOT EXISTS calendar_events (
   CHECK ((start_time IS NULL) = (end_time IS NULL))
 );
 
+-- Member directory visibility (see src/lib/directory.ts). One row per layer
+-- setting; a missing row means "no restriction from this layer". scope_id is
+-- NULL for the church default, else a house_churches.id ('house_church') or
+-- members.id ('member', 'member_self'); it is polymorphic, so no foreign key.
+-- NULLS NOT DISTINCT keeps the church default to one row per field.
+CREATE TABLE IF NOT EXISTS directory_visibility (
+  id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  scope       TEXT NOT NULL,
+  scope_id    UUID,
+  field       TEXT NOT NULL,
+  level       TEXT NOT NULL,
+  updated_by  UUID REFERENCES users(id) ON DELETE SET NULL,
+  updated_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+  CONSTRAINT directory_visibility_scope_check
+    CHECK (scope IN ('church', 'house_church', 'member', 'member_self')),
+  CONSTRAINT directory_visibility_field_check
+    CHECK (field IN ('phone', 'email', 'address', 'birthday', 'household')),
+  CONSTRAINT directory_visibility_level_check
+    CHECK (level IN ('leaders', 'group', 'church')),
+  CONSTRAINT directory_visibility_scope_id_check
+    CHECK ((scope = 'church') = (scope_id IS NULL)),
+  CONSTRAINT directory_visibility_scope_scope_id_field_key
+    UNIQUE NULLS NOT DISTINCT (scope, scope_id, field)
+);
+
 -- Indexes present in the live database
 CREATE INDEX IF NOT EXISTS calendar_events_start_idx ON calendar_events (start_date);
 CREATE INDEX IF NOT EXISTS idx_members_house_church ON members(house_church_id);

@@ -1,17 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { auth } from '@/lib/auth';
 import { sql } from '@/lib/db';
+import { requireViewer, forbidden, isAdmin, pastorsHc, leadsAllMembers, memberHouseChurches, LEADER_ROLES } from '@/lib/authz';
 
 export async function POST(req: NextRequest) {
-  const session = await auth();
-  if (!session?.user) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-  }
-
-  const userRole = (session.user as { role?: string }).role;
-  if (userRole !== 'admin' && userRole !== 'house_church_pastor') {
-    return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
-  }
+  const { viewer, error } = await requireViewer({ roles: LEADER_ROLES });
+  if (error) return error;
 
   try {
     const body = await req.json();
@@ -28,6 +21,13 @@ export async function POST(req: NextRequest) {
     // "Absent" is inferred: if a session exists for this scope (date+type+hc)
     // but no attendance row exists for a member, they were absent.
     const typed = records as { member_id: string; present: boolean }[];
+
+    // Pastors write only for their own house church: its house church
+    // sessions, and (for Sunday service) only members of it.
+    if (!isAdmin(viewer)) {
+      if (attendance_type === 'house_church' && !pastorsHc(viewer, house_church_id)) return forbidden();
+      if (!(await leadsAllMembers(viewer, typed.map((r) => String(r.member_id))))) return forbidden();
+    }
     const presentRecords = typed.filter((r) => r.present);
     const absentIds = typed.filter((r) => !r.present).map((r) => r.member_id);
 
@@ -67,7 +67,7 @@ export async function POST(req: NextRequest) {
       `INSERT INTO attendance_sessions (date, attendance_type, house_church_id, recorded_by)
        VALUES ($1, $2, $3, $4)
        ON CONFLICT DO NOTHING`,
-      [date, attendance_type, house_church_id || null, session.user.id ?? null]
+      [date, attendance_type, house_church_id || null, viewer.userId]
     );
 
     return NextResponse.json({ success: true, count });
@@ -78,19 +78,17 @@ export async function POST(req: NextRequest) {
 }
 
 export async function GET(req: NextRequest) {
-  const session = await auth();
-  if (!session?.user) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-  }
-
-  const userRole = (session.user as { role?: string }).role;
-  if (userRole !== 'admin' && userRole !== 'house_church_pastor') {
-    return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
-  }
+  const { viewer, error } = await requireViewer({ roles: LEADER_ROLES });
+  if (error) return error;
 
   const memberId = req.nextUrl.searchParams.get('member_id');
   if (!memberId) {
     return NextResponse.json({ error: 'member_id required' }, { status: 400 });
+  }
+
+  if (!isAdmin(viewer)) {
+    const hcs = await memberHouseChurches([memberId]);
+    if (!pastorsHc(viewer, hcs.get(memberId))) return forbidden();
   }
 
   const limit = parseInt(req.nextUrl.searchParams.get('limit') || '10', 10);

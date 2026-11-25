@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { auth } from '@/lib/auth';
 import { sql } from '@/lib/db';
+import { requireViewer, forbidden, pastorsHc, leaderHcScope, LEADER_ROLES } from '@/lib/authz';
 
 /** Normalize a Postgres DATE value (Date object or ISO string) to 'YYYY-MM-DD' */
 function toDateStr(v: unknown): string {
@@ -10,15 +10,10 @@ function toDateStr(v: unknown): string {
 const VALID_MONTHS = [1, 2, 3, 4];
 
 export async function GET(req: NextRequest) {
-  const session = await auth();
-  if (!session?.user?.id) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-  }
-
-  const userRole = (session.user as { role?: string }).role;
-  if (userRole !== 'admin' && userRole !== 'house_church_pastor') {
-    return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
-  }
+  const { viewer, error } = await requireViewer({ roles: LEADER_ROLES });
+  if (error) return error;
+  // null = all house churches (admin); a pastor gets exactly their own.
+  const scope = leaderHcScope(viewer);
 
   const params = req.nextUrl.searchParams;
   const attendanceType = params.get('attendance_type') || 'sunday_service';
@@ -30,6 +25,7 @@ export async function GET(req: NextRequest) {
   const months = VALID_MONTHS.includes(monthsRaw) ? monthsRaw : 2;
 
   const houseChurchId = params.get('house_church_id') || null;
+  if (scope && houseChurchId && !pastorsHc(viewer, houseChurchId)) return forbidden();
 
   // Start of the window: today minus N months
   const start = new Date();
@@ -42,8 +38,9 @@ export async function GET(req: NextRequest) {
        WHERE attendance_type = $1
          AND date >= $2
          AND ($3::uuid IS NULL OR house_church_id = $3::uuid)
+         AND ($1 <> 'house_church' OR $4::text[] IS NULL OR house_church_id::text = ANY($4::text[]))
        ORDER BY date`,
-      [attendanceType, startDate, houseChurchId]
+      [attendanceType, startDate, houseChurchId, scope]
     );
 
     const recordRows = await sql(
@@ -51,8 +48,9 @@ export async function GET(req: NextRequest) {
        WHERE attendance_type = $1
          AND date >= $2
          AND ($3::uuid IS NULL OR house_church_id = $3::uuid)
-         AND present = true`,
-      [attendanceType, startDate, houseChurchId]
+         AND present = true
+         AND ($4::text[] IS NULL OR member_id IN (SELECT id FROM members WHERE house_church_id::text = ANY($4::text[])))`,
+      [attendanceType, startDate, houseChurchId, scope]
     );
 
     let meetingDay: string | null = null;
@@ -64,14 +62,6 @@ export async function GET(req: NextRequest) {
       meetingDay = hcRows[0]?.meeting_day || null;
     }
 
-    // House churches the caller pastors, so the client can default the
-    // house church selector to their own rather than the first in the list.
-    const myHcRows = await sql(
-      `SELECT hc.id FROM house_churches hc
-       JOIN members m ON hc.pastor_id = m.id
-       WHERE m.user_id = $1`,
-      [session.user.id]
-    );
 
     return NextResponse.json({
       sessions: sessionRows.map((r) => toDateStr(r.date)),
@@ -80,7 +70,8 @@ export async function GET(req: NextRequest) {
         member_id: r.member_id,
         date: toDateStr(r.date),
       })),
-      my_house_church_ids: myHcRows.map((r) => r.id as string),
+      // So the client can default its house church selector to the caller's own.
+      my_house_church_ids: viewer.pastoredHcIds,
     });
   } catch (error) {
     console.error('Attendance history error:', error);

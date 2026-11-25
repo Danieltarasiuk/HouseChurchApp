@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useSession } from 'next-auth/react';
 import { useLang } from '@/context/LangContext';
+import { NoAccess } from '@/components/NoAccess';
 import { PASTORAL_TOPICS } from '@/data/pastoral-topics';
 import ScriptureModal from '@/components/ScriptureModal';
 import { X, Lock, ChevronDown, ChevronRight, Pencil, Trash2 } from 'lucide-react';
@@ -196,7 +197,13 @@ export default function PastoralPage() {
   }, []);
 
   useEffect(() => {
-    fetch('/api/house-churches').then(r => r.json()).then(d => setChurches(d.churches || [])).catch(() => {});
+    // Pastors can only filter by their own house churches (the API refuses others).
+    Promise.all([fetch('/api/house-churches').then(r => r.json()), fetch('/api/me').then(r => r.json())])
+      .then(([d, me]) => {
+        const all: HouseChurch[] = d.churches || [];
+        setChurches(me.role === 'house_church_pastor' ? all.filter(c => (me.pastoredHcIds || []).includes(c.id)) : all);
+      })
+      .catch(() => {});
     loadMembers();
   }, [loadMembers]);
 
@@ -387,13 +394,12 @@ export default function PastoralPage() {
 
   const selectedTopic = PASTORAL_TOPICS.find(tp => tp.key === meetingTopic);
 
-  if (userRole !== 'admin' && userRole !== 'house_church_pastor') {
+  // Only once the session has loaded: before that the role is unknown.
+  if (session && userRole !== 'admin' && userRole !== 'house_church_pastor') {
     return (
       <div>
         <div className="page-header"><h2>{t('pastoral.title')}</h2></div>
-        <div className="card" style={{ padding: '40px', textAlign: 'center' }}>
-          <p style={{ color: 'var(--text-tertiary)' }}>{t('settings.adminOnly')}</p>
-        </div>
+        <NoAccess />
       </div>
     );
   }

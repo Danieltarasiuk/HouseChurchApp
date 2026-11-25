@@ -3,6 +3,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { useSession } from 'next-auth/react';
 import { useLang } from '@/context/LangContext';
+import { NoAccess } from '@/components/NoAccess';
 
 interface Member {
   id: string;
@@ -249,17 +250,30 @@ export default function AttendancePage() {
   const [sessions, setSessions] = useState<SessionRow[]>([]);
   const [viewReload, setViewReload] = useState(0);
 
+  const isLeader = userRole === 'admin' || userRole === 'house_church_pastor';
+
   useEffect(() => {
+    if (!isLeader) return;
     Promise.all([
       fetch('/api/members').then(r => r.json()),
       fetch('/api/house-churches').then(r => r.json()),
-    ]).then(([memData, hcData]) => {
-      const mems = memData.members || [];
+      fetch('/api/me').then(r => r.json()),
+    ]).then(([memData, hcData, me]) => {
+      let mems: Member[] = memData.members || [];
+      let hcs: HouseChurch[] = hcData.churches || [];
+      // Pastors record and view attendance for their own house church only
+      // (the API enforces this); list just their members and groups.
+      if (me.role === 'house_church_pastor') {
+        const mine: string[] = me.pastoredHcIds || [];
+        mems = mems.filter(m => !!m.house_church_id && mine.includes(m.house_church_id));
+        hcs = hcs.filter(hc => mine.includes(hc.id));
+        if (hcs.length > 0) setSelectedHcId(hcs[0].id);
+      }
       setAllMembers(mems);
-      setChurches(hcData.churches || []);
+      setChurches(hcs);
     }).catch(() => {})
       .finally(() => setLoading(false));
-  }, []);
+  }, [isLeader]);
 
   // Pre-load existing attendance when date, event type, or HC changes
   useEffect(() => {
@@ -820,6 +834,15 @@ export default function AttendancePage() {
     </>
   );
 
+  if (authSession && !isLeader) {
+    return (
+      <div>
+        <div className="page-header"><h2>{t('att.title')}</h2></div>
+        <NoAccess />
+      </div>
+    );
+  }
+
   return (
     <div>
       <div className="page-header">
@@ -902,7 +925,7 @@ export default function AttendancePage() {
                     value={selectedHcId}
                     onChange={(e) => setSelectedHcId(e.target.value)}
                   >
-                    <option value="">{t('hc.allCampuses')}</option>
+                    {userRole === 'admin' && <option value="">{t('hc.allCampuses')}</option>}
                     {churches.map(hc => (
                       <option key={hc.id} value={hc.id}>{hc.name}</option>
                     ))}

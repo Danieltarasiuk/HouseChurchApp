@@ -28,6 +28,7 @@ export const PROTECTED_PATHS = [
   '/pastoral',
   '/calendar',
   '/settings',
+  '/profile',
 ] as const;
 
 /**

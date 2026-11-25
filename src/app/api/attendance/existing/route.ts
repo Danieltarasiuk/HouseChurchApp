@@ -1,17 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { auth } from '@/lib/auth';
 import { sql } from '@/lib/db';
+import { requireViewer, forbidden, pastorsHc, leaderHcScope, LEADER_ROLES } from '@/lib/authz';
 
 export async function GET(req: NextRequest) {
-  const session = await auth();
-  if (!session?.user) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-  }
-
-  const userRole = (session.user as { role?: string }).role;
-  if (userRole !== 'admin' && userRole !== 'house_church_pastor') {
-    return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
-  }
+  const { viewer, error } = await requireViewer({ roles: LEADER_ROLES });
+  if (error) return error;
+  // null = all house churches (admin); a pastor gets exactly their own.
+  const scope = leaderHcScope(viewer);
 
   const date = req.nextUrl.searchParams.get('date');
   const attendanceType = req.nextUrl.searchParams.get('attendance_type');
@@ -21,6 +16,7 @@ export async function GET(req: NextRequest) {
   }
 
   const houseChurchId = req.nextUrl.searchParams.get('house_church_id') || null;
+  if (scope && attendanceType === 'house_church' && !pastorsHc(viewer, houseChurchId)) return forbidden();
 
   try {
     const rows = await sql(
@@ -28,8 +24,9 @@ export async function GET(req: NextRequest) {
        WHERE date = $1
          AND attendance_type = $2
          AND ($3::uuid IS NULL OR house_church_id = $3::uuid)
-         AND present = true`,
-      [date, attendanceType, houseChurchId]
+         AND present = true
+         AND ($4::text[] IS NULL OR member_id IN (SELECT id FROM members WHERE house_church_id::text = ANY($4::text[])))`,
+      [date, attendanceType, houseChurchId, scope]
     );
 
     const presentMemberIds = rows.map((r: Record<string, string>) => r.member_id);

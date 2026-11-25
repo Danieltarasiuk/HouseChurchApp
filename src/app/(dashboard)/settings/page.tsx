@@ -6,6 +6,8 @@ import { useSearchParams } from 'next/navigation';
 import { useLang } from '@/context/LangContext';
 import { Shield, CloudDownload, Link as LinkIcon, CheckCircle, Trash2 } from 'lucide-react';
 import type { SyncStatus, SyncWarning } from '@/lib/pco';
+import { NoAccess } from '@/components/NoAccess';
+import { PrivacyControls } from '@/components/PrivacyControls';
 
 const SYNC_STATUS_KEY: Record<SyncStatus, string> = {
   ok: 'settings.pcoSyncOk',
@@ -265,6 +267,8 @@ function SettingsContent() {
     );
   });
 
+  // Wait for the session: before it loads, the role is unknown, not 'member'.
+  if (status === 'loading') return null;
   if (!isAdmin) {
     return (
       <div>
@@ -272,13 +276,7 @@ function SettingsContent() {
           <h2>{t('settings.title')}</h2>
           <p>{t('settings.sub')}</p>
         </div>
-        <div className="card card-padded">
-          <div className="settings-no-access">
-            <Shield size={48} />
-            <h3>{t('settings.noPermission')}</h3>
-            <p>{t('settings.adminOnly')}</p>
-          </div>
-        </div>
+        <NoAccess />
       </div>
     );
   }
@@ -375,6 +373,15 @@ function SettingsContent() {
             </ul>
           </div>
         )}
+      </div>
+
+      {/* Directory privacy: the church default layer */}
+      <div className="card card-padded" style={{ marginBottom: '24px' }}>
+        <PrivacyControls
+          scope="church"
+          title={t('privacy.churchTitle')}
+          description={t('privacy.churchDesc')}
+        />
       </div>
 
       {/* User Roles */}
