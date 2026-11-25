@@ -1,8 +1,11 @@
 import { describe, it, expect, beforeAll, beforeEach, afterEach, vi } from 'vitest';
-import { current, setupTestDb, mockedSql } from './helpers/db';
+import { current, setupTestDb, mockedSql, mockedWithTransaction } from './helpers/db';
 import { newFakePco, fakeFetch, type FakePcoState, type Fault, type FakePerson } from './helpers/fakePco';
 
-vi.mock('@/lib/db', () => ({ sql: (text: string, params?: unknown[]) => mockedSql(text, params) }));
+vi.mock('@/lib/db', () => ({
+  sql: (text: string, params?: unknown[]) => mockedSql(text, params),
+  withTransaction: <T>(fn: (q: typeof mockedSql) => Promise<T>) => mockedWithTransaction(fn),
+}));
 
 import {
   runPcoSync, encodeSyncDetail, parseSyncDetail,
@@ -10,7 +13,7 @@ import {
 } from '@/lib/pco';
 
 /** Skip geocoding (deadline already passed) unless a test is about it. */
-const NO_GEOCODE = { geocodeDeadline: 1 }; // epoch ms 1: already passed (0 would mean "no deadline")
+const NO_GEOCODE = { geocodeDeadline: 1 }; // epoch ms 1: a deadline already passed
 
 let pco: FakePcoState;
 

@@ -3,6 +3,7 @@ import { auth } from '@/lib/auth';
 import { sql } from '@/lib/db';
 import { cookies } from 'next/headers';
 import { pcoStateMatches, PCO_STATE_COOKIE } from '@/lib/pcoOAuthState';
+import { parseTokenResponse } from '@/lib/pco';
 
 export async function GET(request: Request) {
   const session = await auth();
@@ -63,15 +64,22 @@ export async function GET(request: Request) {
       return NextResponse.redirect(redirectUrl);
     }
 
-    const tokenData = await tokenRes.json();
+    const parsed = parseTokenResponse(await tokenRes.json());
+    if (!parsed.ok) {
+      // Never store a missing token; keep whatever connection already exists.
+      console.error('PCO token exchange returned no access_token or refresh_token');
+      const redirectUrl = new URL('/settings', request.url);
+      redirectUrl.searchParams.set('pco_error', 'token_failed');
+      return NextResponse.redirect(redirectUrl);
+    }
 
-    // Store the token in the database
+    // Store the token, expiring when PCO says it does
     await sql(
       `INSERT INTO pco_tokens (user_id, access_token, refresh_token, expires_at)
-       VALUES ($1, $2, $3, NOW() + INTERVAL '7200 seconds')
+       VALUES ($1, $2, $3, NOW() + make_interval(secs => $4))
        ON CONFLICT (user_id) DO UPDATE
-       SET access_token = $2, refresh_token = $3, expires_at = NOW() + INTERVAL '7200 seconds'`,
-      [session.user.id, tokenData.access_token, tokenData.refresh_token]
+       SET access_token = $2, refresh_token = $3, expires_at = NOW() + make_interval(secs => $4)`,
+      [session.user.id, parsed.accessToken, parsed.refreshToken, parsed.expiresIn]
     );
 
     const redirectUrl = new URL('/settings', request.url);

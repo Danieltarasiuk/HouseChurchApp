@@ -6,6 +6,7 @@ import {
   runPcoSync,
   logSync,
   encodeSyncDetail,
+  encodeFailureDetail,
   PCO_ERROR_MESSAGES,
 } from '@/lib/pco';
 
@@ -42,7 +43,7 @@ export async function GET(request: Request) {
     const userId = await getPcoSyncUserId();
     if (!userId) {
       const detail = PCO_ERROR_MESSAGES.not_connected;
-      await logSync('cron', false, detail, null);
+      await logSync('cron', false, encodeFailureDetail({ step: 'connection', code: 'not_connected' }), null);
       return NextResponse.json({ success: false, reason: 'not_connected', detail });
     }
 
@@ -51,7 +52,7 @@ export async function GET(request: Request) {
       // A dead token can't be repaired by cron — an admin has to reconnect.
       // Report it as a 200 so the cron isn't retried or flagged as a crash.
       const detail = PCO_ERROR_MESSAGES[tokenResult.error];
-      await logSync('cron', false, detail, null);
+      await logSync('cron', false, encodeFailureDetail({ step: 'connection', code: tokenResult.error }), null);
       return NextResponse.json({ success: false, reason: tokenResult.error, detail });
     }
 
@@ -74,7 +75,7 @@ export async function GET(request: Request) {
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     console.error('Cron PCO sync error:', message, error);
-    await logSync('cron', false, message, null);
+    await logSync('cron', false, encodeFailureDetail({ step: 'sync', code: 'unexpected', params: { detail: message } }), null);
     return NextResponse.json({ success: false, reason: 'sync_failed', detail: message }, { status: 500 });
   }
 }

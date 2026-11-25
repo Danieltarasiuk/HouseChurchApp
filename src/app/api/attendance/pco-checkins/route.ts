@@ -39,8 +39,8 @@ export async function GET(req: NextRequest) {
   }
 
   try {
-    // Pastors have no PCO connection of their own; use the connected admin's.
-    const tokenUserId = viewer.role === 'admin' ? viewer.userId : await getPcoSyncUserId();
+    // The church's Planning Center connection (the one the sync uses).
+    const tokenUserId = await getPcoSyncUserId();
     if (!tokenUserId) {
       return NextResponse.json({ error: PCO_ERROR_MESSAGES.not_connected, reason: 'not_connected' }, { status: 400 });
     }

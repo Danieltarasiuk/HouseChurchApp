@@ -1,30 +1,37 @@
 import { NextResponse } from 'next/server';
-import { auth } from '@/lib/auth';
-import { getValidPcoToken, verifyPcoToken } from '@/lib/pco';
+import { sql } from '@/lib/db';
+import { requireViewer } from '@/lib/authz';
+import { getPcoSyncUserId, getValidPcoToken, verifyPcoToken } from '@/lib/pco';
 
+/**
+ * The Planning Center connection the sync actually uses (the cron's token,
+ * see getPcoSyncUserId), so every admin sees the real state, plus whose
+ * connection it is. Admins only: it names an admin.
+ */
 export async function GET() {
-  const session = await auth();
-  if (!session?.user) {
-    return NextResponse.json({ connected: false });
-  }
+  const { error } = await requireViewer({ roles: ['admin'] });
+  if (error) return error;
 
   try {
-    const result = await getValidPcoToken(session.user.id!);
+    const userId = await getPcoSyncUserId();
+    if (!userId) return NextResponse.json({ connected: false });
 
+    const owner = await sql('SELECT name, email FROM users WHERE id = $1', [userId]);
+    const connectedBy = owner[0] ? { name: owner[0].name as string, email: owner[0].email as string } : null;
+
+    const result = await getValidPcoToken(userId);
     if (result.error) {
-      // 'not_connected' just means the user never linked PCO — no error to show
       return NextResponse.json({
         connected: false,
+        connectedBy,
         ...(result.error !== 'not_connected' ? { reason: result.error } : {}),
       });
     }
 
     const check = await verifyPcoToken(result.token);
-    if (!check.ok) {
-      return NextResponse.json({ connected: false, reason: check.error });
-    }
+    if (!check.ok) return NextResponse.json({ connected: false, connectedBy, reason: check.error });
 
-    return NextResponse.json({ connected: true });
+    return NextResponse.json({ connected: true, connectedBy });
   } catch {
     return NextResponse.json({ connected: false, reason: 'pco_unavailable' });
   }

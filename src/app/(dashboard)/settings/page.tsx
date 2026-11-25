@@ -10,6 +10,9 @@ import { NoAccess } from '@/components/NoAccess';
 import { PrivacyControls } from '@/components/PrivacyControls';
 import { PendingAccounts, type LinkableMember } from '@/components/PendingAccounts';
 
+const PCO_REASONS = ['not_connected', 'missing_credentials', 'invalid_credentials', 'permission_denied', 'pco_unavailable', 'bad_refresh_response'];
+const hasPcoReason = (r: string) => PCO_REASONS.includes(r);
+
 const SYNC_STATUS_KEY: Record<SyncStatus, string> = {
   ok: 'settings.pcoSyncOk',
   warnings: 'settings.pcoSyncWarnings',
@@ -79,6 +82,8 @@ function SettingsContent() {
   const [pcoImporting, setPcoImporting] = useState(false);
   const [pcoResult, setPcoResult] = useState('');
   const [pcoFailReason, setPcoFailReason] = useState('');
+  /** Name of the admin whose Planning Center connection the sync uses. */
+  const [pcoConnectedBy, setPcoConnectedBy] = useState('');
   const [lastSync, setLastSync] = useState<LastSync | null>(null);
 
   const fetchUsers = useCallback(async () => {
@@ -166,6 +171,7 @@ function SettingsContent() {
       fetch('/api/planning-center/status')
         .then((res) => res.json())
         .then((data) => {
+          setPcoConnectedBy(data.connectedBy?.name || '');
           if (data.connected) {
             setPcoConnected(true);
             setPcoFailReason('');
@@ -236,7 +242,10 @@ function SettingsContent() {
       const data = await res.json();
 
       if (!res.ok) {
-        setError(data.error || t('settings.pcoImportError'));
+        // Reason codes are translated here; the server's text is English.
+        setError(data.reason && hasPcoReason(data.reason)
+          ? t('settings.pcoConnFailed').replace('{reason}', t('settings.pcoReason.' + data.reason))
+          : t('settings.pcoImportError'));
         return;
       }
 
@@ -254,6 +263,9 @@ function SettingsContent() {
           .replace('{archived}', String(data.archived || 0))
           .replace('{campuses}', String(data.campuses || 0))
           .replace('{total}', String(data.total))
+        + (data.houseChurchesDeactivated
+          ? ' ' + t('settings.pcoHcDeactivated').replace('{count}', String(data.houseChurchesDeactivated))
+          : '')
       );
       setTimeout(() => setPcoResult(''), 8000);
     } catch {
@@ -325,7 +337,9 @@ function SettingsContent() {
               <>
                 <span className="badge badge-active" style={{ gap: '4px', display: 'inline-flex', alignItems: 'center' }}>
                   <CheckCircle size={12} />
-                  {t('settings.pcoStatusConnected')}
+                  {pcoConnectedBy
+                    ? t('settings.pcoConnectedAs').replace('{name}', pcoConnectedBy)
+                    : t('settings.pcoStatusConnected')}
                 </span>
                 <button
                   className="btn btn-primary"

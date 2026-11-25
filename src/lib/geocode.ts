@@ -100,7 +100,8 @@ export async function geocodeMembersWithoutCoords(opts: GeocodeBatchOptions = {}
   let errors = 0;
 
   for (const row of rows) {
-    if (opts.deadline && Date.now() >= opts.deadline) break;
+    // Only undefined means "no deadline" (0 is a deadline already passed).
+    if (opts.deadline !== undefined && Date.now() >= opts.deadline) break;
 
     const address = buildGeocodingAddress(
       row.address_street || '',
@@ -171,7 +172,8 @@ export async function geocodeHouseChurchesWithoutCoords(opts: GeocodeBatchOption
   let errors = 0;
 
   for (const row of rows) {
-    if (opts.deadline && Date.now() >= opts.deadline) break;
+    // Only undefined means "no deadline" (0 is a deadline already passed).
+    if (opts.deadline !== undefined && Date.now() >= opts.deadline) break;
 
     const address = buildGeocodingAddress(
       row.address_street || '',
