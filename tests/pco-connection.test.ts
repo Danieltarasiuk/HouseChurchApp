@@ -1,18 +1,19 @@
 import { describe, it, expect, beforeAll, beforeEach, afterEach, vi } from 'vitest';
-import { current, setupTestDb, mockedSql, mockedWithTransaction } from './helpers/db';
-import { seedChurch, U, ROLE_OF } from './helpers/fixtures';
+import { current, setupTestDb, driverHooks } from './helpers/db';
+import { seedChurch, U, ROLE_OF, CHURCH } from './helpers/fixtures';
+import { withChurch } from '@/lib/db';
 import { newFakePco, fakeFetch } from './helpers/fakePco';
 
-vi.mock('@/lib/db', () => ({
-  sql: (text: string, params?: unknown[]) => mockedSql(text, params),
-  withTransaction: <T>(fn: (q: typeof mockedSql) => Promise<T>) => mockedWithTransaction(fn),
-}));
+vi.mock('@/lib/dbDriver', async () => (await import('./helpers/db')).testDriver);
+vi.mock('next/headers', async () => (await import('./helpers/db')).headersMock);
 
 let sessionUser: { id: string; role: string } | null = null;
 vi.mock('@/lib/auth', () => ({ auth: async () => (sessionUser ? { user: sessionUser } : null) }));
 
 const sql = (text: string, params?: unknown[]) => current.db!.sql(text, params);
 const as = (who: keyof typeof U) => { sessionUser = { id: U[who], role: ROLE_OF[who] }; };
+/** Library calls run inside a church, as every request does. */
+const inCity = <T>(fn: () => Promise<T>) => withChurch(CHURCH.city, fn);
 
 setupTestDb({ beforeAll, beforeEach, afterEach }, seedChurch);
 beforeEach(() => {
@@ -27,9 +28,9 @@ afterEach(() => vi.unstubAllGlobals());
 /** A stored token for the admin, already expired unless `validFor` seconds given. */
 const storeToken = (validForSeconds = -60) =>
   sql(
-    `INSERT INTO pco_tokens (user_id, access_token, refresh_token, expires_at)
-     VALUES ($1, 'old-access', 'old-refresh', NOW() + make_interval(secs => $2))`,
-    [U.admin, validForSeconds]
+    `INSERT INTO pco_tokens (church_id, user_id, access_token, refresh_token, expires_at)
+     VALUES ($3, $1, 'old-access', 'old-refresh', NOW() + make_interval(secs => $2))`,
+    [U.admin, validForSeconds, CHURCH.city]
   );
 const stored = async () =>
   (await sql(`SELECT access_token, refresh_token, EXTRACT(EPOCH FROM (expires_at - NOW()))::int AS secs_left FROM pco_tokens WHERE user_id = $1`, [U.admin]))[0];
@@ -58,7 +59,7 @@ describe('getValidPcoToken', () => {
     await storeToken(3600);
     const pco = mockPco({});
     const { getValidPcoToken } = await import('@/lib/pco');
-    expect(await getValidPcoToken(U.admin)).toEqual({ token: 'old-access' });
+    expect(await inCity(() => getValidPcoToken(U.admin))).toEqual({ token: 'old-access' });
     expect(pco.refreshCalls()).toBe(0);
   });
 
@@ -66,7 +67,7 @@ describe('getValidPcoToken', () => {
     await storeToken();
     mockPco({ access_token: 'new-access', refresh_token: 'new-refresh', expires_in: 900 });
     const { getValidPcoToken } = await import('@/lib/pco');
-    expect(await getValidPcoToken(U.admin)).toEqual({ token: 'new-access' });
+    expect(await inCity(() => getValidPcoToken(U.admin))).toEqual({ token: 'new-access' });
     const row = await stored();
     expect(row).toMatchObject({ access_token: 'new-access', refresh_token: 'new-refresh' });
     expect(row.secs_left).toBeGreaterThan(880);
@@ -77,7 +78,7 @@ describe('getValidPcoToken', () => {
     await storeToken(30);
     const pco = mockPco({ access_token: 'new-access', refresh_token: 'new-refresh', expires_in: 7200 });
     const { getValidPcoToken } = await import('@/lib/pco');
-    expect(await getValidPcoToken(U.admin)).toEqual({ token: 'new-access' });
+    expect(await inCity(() => getValidPcoToken(U.admin))).toEqual({ token: 'new-access' });
     expect(pco.refreshCalls()).toBe(1);
   });
 
@@ -90,7 +91,7 @@ describe('getValidPcoToken', () => {
     await storeToken();
     mockPco(body);
     const { getValidPcoToken } = await import('@/lib/pco');
-    expect(await getValidPcoToken(U.admin)).toEqual({ error: 'bad_refresh_response' });
+    expect(await inCity(() => getValidPcoToken(U.admin))).toEqual({ error: 'bad_refresh_response' });
     expect(await stored()).toMatchObject({ access_token: 'old-access', refresh_token: 'old-refresh' });
     expect(console.error).toHaveBeenCalled();
   });
@@ -104,7 +105,7 @@ describe('getValidPcoToken', () => {
     await storeToken();
     mockPco({ error: 'x' }, status);
     const { getValidPcoToken } = await import('@/lib/pco');
-    expect(await getValidPcoToken(U.admin)).toEqual({ error: reason });
+    expect(await inCity(() => getValidPcoToken(U.admin))).toEqual({ error: reason });
     expect(await stored()).toMatchObject({ access_token: 'old-access', refresh_token: 'old-refresh' });
   });
 
@@ -112,7 +113,8 @@ describe('getValidPcoToken', () => {
     await storeToken();
     const pco = mockPco({ access_token: 'new-access', refresh_token: 'new-refresh', expires_in: 7200 }, 200, 20);
     const { getValidPcoToken } = await import('@/lib/pco');
-    const results = await Promise.all([getValidPcoToken(U.admin), getValidPcoToken(U.admin), getValidPcoToken(U.admin)]);
+    // One request context, three concurrent callers (as within one server instance).
+    const results = await inCity(() => Promise.all([getValidPcoToken(U.admin), getValidPcoToken(U.admin), getValidPcoToken(U.admin)]));
     expect(results).toEqual([{ token: 'new-access' }, { token: 'new-access' }, { token: 'new-access' }]);
     expect(pco.refreshCalls()).toBe(1);
   });
@@ -123,14 +125,16 @@ describe('getValidPcoToken', () => {
     // Simulate another instance finishing its refresh between our first read
     // and taking the lock: the locked SELECT sees a fresh token.
     const { getValidPcoToken } = await import('@/lib/pco');
-    const db = await import('@/lib/db');
-    const spy = vi.spyOn(db, 'withTransaction').mockImplementationOnce(async (fn) => {
-      await sql(`UPDATE pco_tokens SET access_token = 'other-instance', expires_at = NOW() + interval '1 hour' WHERE user_id = $1`, [U.admin]);
-      return mockedWithTransaction(fn as never);
-    });
-    expect(await getValidPcoToken(U.admin)).toEqual({ token: 'other-instance' });
+    // The refresh's own transaction is the second one opened (the first is
+    // the request's): change the row just before it takes the lock.
+    let opened = 0;
+    driverHooks.beforeOpen = async () => {
+      if (++opened === 2) {
+        await sql(`UPDATE pco_tokens SET access_token = 'other-instance', expires_at = NOW() + interval '1 hour' WHERE user_id = $1`, [U.admin]);
+      }
+    };
+    expect(await inCity(() => getValidPcoToken(U.admin))).toEqual({ token: 'other-instance' });
     expect(pco.refreshCalls()).toBe(0);
-    spy.mockRestore();
   });
 
   it('the initial connect also stores expires_in, and refuses a response without tokens', async () => {
@@ -150,9 +154,10 @@ describe('planning-center/status', () => {
 
   it("shows the sync's connection, and whose it is, to an admin who never connected", async () => {
     await storeToken(3600); // the "admin" fixture connected
-    await sql(`INSERT INTO users (id, name, email, role) VALUES ('00000000-0000-0000-0000-0000000000b1', 'Second Admin', 'admin2@example.test', 'admin')`);
+    await sql(`INSERT INTO users (id, name, email) VALUES ('00000000-0000-0000-0000-0000000000e1', 'Second Admin', 'admin2@example.test')`);
+    await sql(`INSERT INTO church_memberships (user_id, church_id, role) VALUES ('00000000-0000-0000-0000-0000000000e1', $1, 'admin')`, [CHURCH.city]);
     mockPco({});
-    sessionUser = { id: '00000000-0000-0000-0000-0000000000b1', role: 'admin' };
+    sessionUser = { id: '00000000-0000-0000-0000-0000000000e1', role: 'admin' };
     const data = await (await status()).json();
     expect(data).toEqual({ connected: true, connectedBy: { name: 'admin', email: 'admin@example.test' } });
   });
@@ -180,14 +185,30 @@ describe('planning-center/status', () => {
 // ---------------------------------------------------------------------------
 
 describe('pre-sync failures in sync_log', () => {
-  it('a cron run with no connection is logged as a coded warning', async () => {
+  it('a cron run skips churches that never connected, logging nothing for them', async () => {
     process.env.CRON_SECRET = 'cron-secret';
+    const before = (await sql('SELECT count(*)::int AS n FROM sync_log'))[0].n;
+    const { GET } = await import('@/app/api/cron/pco-sync/route');
+    const res = await GET(new Request('http://localhost/api/cron/pco-sync', { headers: { authorization: 'Bearer cron-secret' } }));
+    const body = await res.json();
+    expect(body.success).toBe(true);
+    expect(body.churches).toEqual([
+      { church: 'citychurch', status: 'skipped', reason: 'not_connected' },
+      { church: 'test-church', status: 'skipped', reason: 'not_connected' },
+    ]);
+    expect((await sql('SELECT count(*)::int AS n FROM sync_log'))[0].n).toBe(before);
+  });
+
+  it('a cron run with a revoked token logs a coded warning in that church', async () => {
+    process.env.CRON_SECRET = 'cron-secret';
+    await storeToken();
+    mockPco({ error: 'revoked' }, 401);
     const { GET } = await import('@/app/api/cron/pco-sync/route');
     await GET(new Request('http://localhost/api/cron/pco-sync', { headers: { authorization: 'Bearer cron-secret' } }));
-    const [row] = await sql('SELECT success, detail FROM sync_log ORDER BY created_at DESC LIMIT 1');
+    const [row] = await sql('SELECT church_id, success, detail FROM sync_log ORDER BY created_at DESC LIMIT 1');
     const { parseSyncDetail } = await import('@/lib/pco');
-    expect(row.success).toBe(false);
-    expect(parseSyncDetail(row.detail).warnings).toEqual([{ step: 'connection', code: 'not_connected' }]);
+    expect(row).toMatchObject({ church_id: CHURCH.city, success: false });
+    expect(parseSyncDetail(row.detail).warnings).toEqual([{ step: 'connection', code: 'invalid_credentials' }]);
   });
 
   it('a manual run with a revoked token is logged the same way and answers with a reason code', async () => {
@@ -224,27 +245,27 @@ describe('deleted campuses', () => {
   it('deactivates their groups after a complete campuses fetch, and counts them', async () => {
     const pco = seedPco();
     const { runPcoSync } = await import('@/lib/pco');
-    await runPcoSync('t', NO_GEOCODE);
+    await inCity(() => runPcoSync('t', NO_GEOCODE));
     expect(await activeGroups()).toEqual(['North', 'South']);
 
     pco.campuses = [{ id: 'c1', name: 'North' }];
-    const result = await runPcoSync('t', NO_GEOCODE);
+    const result = await inCity(() => runPcoSync('t', NO_GEOCODE));
     expect(result.groupsDeactivated).toBe(1);
     expect(await activeGroups()).toEqual(['North']);
 
     pco.campuses.push({ id: 'c2', name: 'South' }); // it comes back
-    expect((await runPcoSync('t', NO_GEOCODE)).groupsDeactivated).toBe(0);
+    expect((await inCity(() => runPcoSync('t', NO_GEOCODE))).groupsDeactivated).toBe(0);
     expect(await activeGroups()).toEqual(['North', 'South']);
   });
 
   it.each(['500', 'truncate', 'empty'] as const)('deactivates nothing when the campuses fetch fails (%s)', async (fault) => {
     const pco = seedPco();
     const { runPcoSync } = await import('@/lib/pco');
-    await runPcoSync('t', NO_GEOCODE);
+    await inCity(() => runPcoSync('t', NO_GEOCODE));
     pco.campuses = [{ id: 'c1', name: 'North' }, { id: 'c3', name: 'West' }];
     pco.pageSize = 1;
     pco.faults.campuses = { page: fault === '500' ? 1 : 0, fault }; // truncate: no next link after page 1
-    const result = await runPcoSync('t', NO_GEOCODE);
+    const result = await inCity(() => runPcoSync('t', NO_GEOCODE));
     expect(result.groupsDeactivated).toBe(0);
     expect(await activeGroups()).toEqual(['North', 'South']);
   });
@@ -252,7 +273,7 @@ describe('deleted campuses', () => {
   it('never touches groups created in the app (no campus)', async () => {
     seedPco();
     const { runPcoSync } = await import('@/lib/pco');
-    await runPcoSync('t', NO_GEOCODE);
+    await inCity(() => runPcoSync('t', NO_GEOCODE));
     const manual = await sql(`SELECT is_active FROM groups WHERE pco_campus_id IS NULL`);
     expect(manual.every((r) => r.is_active)).toBe(true); // group A / group B fixtures
   });

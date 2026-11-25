@@ -1,16 +1,20 @@
 import { describe, it, expect, beforeAll, beforeEach, afterEach, vi } from 'vitest';
-import { current, setupTestDb, mockedSql, mockedWithTransaction } from './helpers/db';
+import { current, setupTestDb } from './helpers/db';
 import { newFakePco, fakeFetch, type FakePcoState, type Fault, type FakePerson } from './helpers/fakePco';
 
-vi.mock('@/lib/db', () => ({
-  sql: (text: string, params?: unknown[]) => mockedSql(text, params),
-  withTransaction: <T>(fn: (q: typeof mockedSql) => Promise<T>) => mockedWithTransaction(fn),
-}));
+vi.mock('@/lib/dbDriver', async () => (await import('./helpers/db')).testDriver);
+vi.mock('next/headers', async () => (await import('./helpers/db')).headersMock);
 
 import {
-  runPcoSync, encodeSyncDetail, parseSyncDetail,
+  runPcoSync as runPcoSyncIn, encodeSyncDetail, parseSyncDetail,
   ARCHIVE_GUARD_MAX_FRACTION, ARCHIVE_GUARD_MIN_PEOPLE,
 } from '@/lib/pco';
+import { withChurch } from '@/lib/db';
+
+const CHURCH_ID = 'c1c1c1c1-0000-4000-8000-000000000001';
+/** The sync runs inside a church (row-level security), like the cron's. */
+const runPcoSync = (token: string, opts: Parameters<typeof runPcoSyncIn>[1]) =>
+  withChurch(CHURCH_ID, () => runPcoSyncIn(token, opts));
 
 /** Skip geocoding (deadline already passed) unless a test is about it. */
 const NO_GEOCODE = { geocodeDeadline: 1 }; // epoch ms 1: a deadline already passed
@@ -42,7 +46,9 @@ const members = async () =>
 const byId = async (): Promise<Record<string, Record<string, any>>> =>
   Object.fromEntries((await members()).map((m) => [m.pco_id, m]));
 
-setupTestDb({ beforeAll, beforeEach, afterEach });
+setupTestDb({ beforeAll, beforeEach, afterEach }, async (db) => {
+  await db.sql(`INSERT INTO churches (id, slug, name) VALUES ($1, 'citychurch', 'CityChurch')`, [CHURCH_ID]);
+});
 beforeEach(async () => {
   pco = newFakePco();
   vi.stubGlobal('fetch', fakeFetch(pco));
@@ -183,7 +189,7 @@ describe('archive guard', () => {
   });
 
   it('never archives manually added members', async () => {
-    await current.db!.sql(`INSERT INTO members (first_name, last_name, is_active) VALUES ('Manual', 'Person', true)`);
+    await current.db!.sql(`INSERT INTO members (church_id, first_name, last_name, is_active) VALUES ($1, 'Manual', 'Person', true)`, [CHURCH_ID]);
     const result = await sync30ThenKeep(26);
     expect(result.archived).toBe(4);
     const manual = await current.db!.sql(`SELECT is_active FROM members WHERE pco_id IS NULL`);

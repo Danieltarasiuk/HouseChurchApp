@@ -1,12 +1,10 @@
 import { describe, it, expect, beforeAll, beforeEach, afterEach, vi } from 'vitest';
 import { NextRequest } from 'next/server';
-import { current, setupTestDb, mockedSql, mockedWithTransaction } from './helpers/db';
-import { seedChurch, U, M, ROLE_OF } from './helpers/fixtures';
+import { current, setupTestDb } from './helpers/db';
+import { seedChurch, U, M, ROLE_OF, CHURCH } from './helpers/fixtures';
 
-vi.mock('@/lib/db', () => ({
-  sql: (text: string, params?: unknown[]) => mockedSql(text, params),
-  withTransaction: <T>(fn: (q: typeof mockedSql) => Promise<T>) => mockedWithTransaction(fn),
-}));
+vi.mock('@/lib/dbDriver', async () => (await import('./helpers/db')).testDriver);
+vi.mock('next/headers', async () => (await import('./helpers/db')).headersMock);
 
 let sessionUser: { id: string; role: string } | null = null;
 vi.mock('@/lib/auth', () => ({ auth: async () => (sessionUser ? { user: sessionUser } : null) }));
@@ -33,7 +31,11 @@ async function register(email: string, name = 'New Person') {
     method: 'POST', body: JSON.stringify({ name, email, password: 'long-enough-password' }),
   }));
 }
-const userByEmail = async (email: string) => (await sql('SELECT id, status, role FROM users WHERE email = $1', [email]))[0];
+/** The account and its role/status in CityChurch (the church sign-ups land in). */
+const userByEmail = async (email: string) => (await sql(
+  `SELECT u.id, cm.status, cm.role FROM users u
+   LEFT JOIN church_memberships cm ON cm.user_id = u.id AND cm.church_id = $2
+   WHERE u.email = $1`, [email, CHURCH.city]))[0];
 
 // ---------------------------------------------------------------------------
 // 1. Registration never links by email
@@ -58,7 +60,8 @@ describe('email/password registration', () => {
 
   it('the database refuses a pending account with any role but member', async () => {
     await register('x@example.test');
-    await expect(sql(`UPDATE users SET role = 'admin' WHERE email = 'x@example.test'`)).rejects.toThrow(/users_pending_is_member_check/);
+    const { id } = await userByEmail('x@example.test');
+    await expect(sql(`UPDATE church_memberships SET role = 'admin' WHERE user_id = $1`, [id])).rejects.toThrow(/church_memberships_pending_is_member_check/);
   });
 });
 
@@ -218,7 +221,7 @@ describe('Google sign-in', () => {
     await sql(`UPDATE members SET email = 'g@example.test' WHERE id = $1`, [M.A2]);
     const { googleSignIn } = await import('@/lib/memberLink');
     const account = await googleSignIn('G@Example.test', 'Gee User');
-    expect(account.status).toBe('active');
+    expect((await userByEmail('g@example.test')).status).toBe('active');
     expect((await sql('SELECT user_id FROM members WHERE id = $1', [M.A2]))[0].user_id).toBe(account.id);
   });
 
@@ -231,8 +234,8 @@ describe('Google sign-in', () => {
   it('an existing pending account stays pending and is not linked', async () => {
     await register('a2@example.test');
     const { googleSignIn } = await import('@/lib/memberLink');
-    const account = await googleSignIn('a2@example.test', 'A2');
-    expect(account.status).toBe('pending');
+    await googleSignIn('a2@example.test', 'A2');
+    expect((await userByEmail('a2@example.test')).status).toBe('pending');
     expect((await sql('SELECT user_id FROM members WHERE id = $1', [M.A2]))[0].user_id).toBeNull();
   });
 });
@@ -267,13 +270,13 @@ describe('pastoral meetings and flags', () => {
     as('pastorA');
     await meetingsPost(M.B1);
     await flagsPost(M.B1);
-    expect(await sql('SELECT * FROM pastoral_meetings')).toEqual([]);
-    expect(await sql('SELECT * FROM member_flags')).toEqual([]);
+    expect(await sql('SELECT * FROM pastoral_meetings WHERE church_id = $1', [CHURCH.city])).toEqual([]);
+    expect(await sql('SELECT * FROM member_flags WHERE church_id = $1', [CHURCH.city])).toEqual([]);
   });
 
   it("a pastor's own meeting list is limited to their own group", async () => {
     // pastorA logged a meeting with B1 back when B1 was in group A.
-    await sql(`INSERT INTO pastoral_meetings (pastor_id, member_id, topic_key, meeting_date) VALUES ($1, $2, 'general', '2026-01-01'), ($1, $3, 'general', '2026-01-02')`, [U.pastorA, M.B1, M.A1]);
+    await sql(`INSERT INTO pastoral_meetings (church_id, pastor_id, member_id, topic_key, meeting_date) VALUES ($4, $1, $2, 'general', '2026-01-01'), ($4, $1, $3, 'general', '2026-01-02')`, [U.pastorA, M.B1, M.A1, CHURCH.city]);
     as('pastorA');
     const { meetings } = await (await meetingsGet()).json();
     expect(meetings.map((m: { member_id: string }) => m.member_id)).toEqual([M.A1]);

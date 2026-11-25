@@ -1,12 +1,10 @@
 import { describe, it, expect, beforeAll, beforeEach, afterEach, vi } from 'vitest';
 import { NextRequest } from 'next/server';
-import { current, setupTestDb, mockedSql, mockedWithTransaction } from './helpers/db';
+import { current, setupTestDb } from './helpers/db';
 import { seedChurch, U, GROUP } from './helpers/fixtures';
 
-vi.mock('@/lib/db', () => ({
-  sql: (text: string, params?: unknown[]) => mockedSql(text, params),
-  withTransaction: <T>(fn: (q: typeof mockedSql) => Promise<T>) => mockedWithTransaction(fn),
-}));
+vi.mock('@/lib/dbDriver', async () => (await import('./helpers/db')).testDriver);
+vi.mock('next/headers', async () => (await import('./helpers/db')).headersMock);
 vi.mock('@/lib/auth', () => ({ auth: async () => ({ user: { id: U.admin, role: 'admin' } }) }));
 
 import { todayInChurchTz, isoDateInChurchTz, subtractMonthsISO, monthsAgoInChurchTz } from '@/lib/churchTime';
@@ -16,6 +14,8 @@ const sql = (text: string, params?: unknown[]) => current.db!.sql(text, params);
 setupTestDb({ beforeAll, beforeEach, afterEach }, seedChurch);
 afterEach(() => vi.useRealTimers());
 
+const MIAMI = 'America/New_York';
+
 /** 22:30 on Sunday 30 Nov in Miami = 03:30 UTC Monday 1 Dec. */
 const SUNDAY_EVENING_MIAMI = new Date('2026-12-01T03:30:00Z');
 
@@ -24,13 +24,15 @@ describe('church calendar dates', () => {
     vi.useFakeTimers({ toFake: ['Date'] });
     vi.setSystemTime(SUNDAY_EVENING_MIAMI);
     expect(new Date().toISOString().slice(0, 10)).toBe('2026-12-01'); // what the old code used
-    expect(todayInChurchTz()).toBe('2026-11-30');
+    expect(todayInChurchTz(MIAMI)).toBe('2026-11-30');
+    expect(todayInChurchTz('America/Los_Angeles')).toBe('2026-11-30'); // 19:30 Sunday in LA
+    expect(todayInChurchTz('Europe/Madrid')).toBe('2026-12-01'); // 04:30 Monday in Madrid
   });
 
   it('follows daylight saving time', () => {
-    expect(isoDateInChurchTz(new Date('2026-07-01T03:30:00Z'))).toBe('2026-06-30'); // EDT, UTC-4
-    expect(isoDateInChurchTz(new Date('2026-07-01T04:30:00Z'))).toBe('2026-07-01');
-    expect(isoDateInChurchTz(new Date('2026-01-01T04:30:00Z'))).toBe('2025-12-31'); // EST, UTC-5
+    expect(isoDateInChurchTz(new Date('2026-07-01T03:30:00Z'), MIAMI)).toBe('2026-06-30'); // EDT, UTC-4
+    expect(isoDateInChurchTz(new Date('2026-07-01T04:30:00Z'), MIAMI)).toBe('2026-07-01');
+    expect(isoDateInChurchTz(new Date('2026-01-01T04:30:00Z'), MIAMI)).toBe('2025-12-31'); // EST, UTC-5
   });
 
   it.each([
@@ -47,7 +49,7 @@ describe('church calendar dates', () => {
   it('the window start is computed from the church date', () => {
     vi.useFakeTimers({ toFake: ['Date'] });
     vi.setSystemTime(SUNDAY_EVENING_MIAMI);
-    expect(monthsAgoInChurchTz(1)).toBe('2026-10-30'); // UTC would give 2026-11-01
+    expect(monthsAgoInChurchTz(1, MIAMI)).toBe('2026-10-30'); // UTC would give 2026-11-01
   });
 });
 
@@ -56,7 +58,7 @@ describe('attendance windows use the church date', () => {
     // Sessions on 30 Oct and 31 Oct: inside a 1-month window from Sunday
     // 30 Nov (church date), outside one from 1 Dec (the UTC date).
     for (const d of ['2026-10-30', '2026-10-31']) {
-      await sql(`INSERT INTO attendance_sessions (date, attendance_type, group_id) VALUES ($1, 'group', $2)`, [d, GROUP.A]);
+      await sql(`INSERT INTO attendance_sessions (church_id, date, attendance_type, group_id) VALUES ($3, $1, 'group', $2)`, [d, GROUP.A, 'c1c1c1c1-0000-4000-8000-000000000001']);
     }
     vi.useFakeTimers({ toFake: ['Date'] });
     vi.setSystemTime(SUNDAY_EVENING_MIAMI);

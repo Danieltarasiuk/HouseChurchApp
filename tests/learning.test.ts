@@ -1,16 +1,14 @@
 import { describe, it, expect, beforeAll, beforeEach, afterEach, vi } from 'vitest';
 import { NextRequest } from 'next/server';
-import { current, setupTestDb, mockedSql, mockedWithTransaction } from './helpers/db';
+import { current, setupTestDb } from './helpers/db';
 import { seedChurch, U, ROLE_OF } from './helpers/fixtures';
 import { requiredAnswerKeys } from '@/lib/discipleshipProgress';
 import { incubatorBodyIndex, incubatorDay } from '@/lib/incubator';
 import { INCUBATOR_CURRICULUM } from '@/data/incubator-curriculum';
 import { INCUBATOR_BODIES } from '@/data/incubator-bodies';
 
-vi.mock('@/lib/db', () => ({
-  sql: (text: string, params?: unknown[]) => mockedSql(text, params),
-  withTransaction: <T>(fn: (q: typeof mockedSql) => Promise<T>) => mockedWithTransaction(fn),
-}));
+vi.mock('@/lib/dbDriver', async () => (await import('./helpers/db')).testDriver);
+vi.mock('next/headers', async () => (await import('./helpers/db')).headersMock);
 let sessionUser: { id: string; role: string } | null = null;
 vi.mock('@/lib/auth', () => ({ auth: async () => (sessionUser ? { user: sessionUser } : null) }));
 
