@@ -295,6 +295,7 @@ const translations: Translations = {
     'settings.pcoSource.manual': 'manual',
     'settings.pcoSyncOk': 'Success',
     'settings.pcoSyncFailed': 'Failed',
+    'settings.pcoHouseholdsNotUpdated': 'Households not updated: {reason}. Members synced, and existing household groupings were kept.',
   },
   es: {
     'app.title': 'HouseChurchApp',
@@ -580,6 +581,7 @@ const translations: Translations = {
     'settings.pcoSource.manual': 'manual',
     'settings.pcoSyncOk': 'Exitosa',
     'settings.pcoSyncFailed': 'Fallida',
+    'settings.pcoHouseholdsNotUpdated': 'Hogares no actualizados: {reason}. Los miembros se sincronizaron y se conservaron los hogares existentes.',
   },
 };
 

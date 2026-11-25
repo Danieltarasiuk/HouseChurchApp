@@ -215,46 +215,76 @@ interface HouseholdInfo {
   householdName: string;
 }
 
+/** Prefix of the sync_log / UI message when the household step was skipped. */
+export const HOUSEHOLDS_NOT_UPDATED = 'Households not updated';
+
+type HouseholdsFetch =
+  | { ok: true; map: Map<string, HouseholdInfo> } // person pco_id -> household
+  | { ok: false; reason: string };
+
 /**
  * Maps each PCO person ID to their household. A person in several households
- * keeps the first one seen. Never throws: a households failure logs and
- * returns null, so it cannot fail the whole sync — and null (as opposed to an
- * empty Map, which means "fetched fine, no households") tells the sync to
- * preserve members' existing household values rather than wiping them.
+ * keeps the first one seen.
+ *
+ * All or nothing: any failed, partial or implausible fetch — network error,
+ * non-2xx (including a 429 rate limit), a page that isn't the expected
+ * JSON:API shape, or no households at all — returns { ok: false, reason } so
+ * the sync leaves every member's household values exactly as they were. Only
+ * a complete, well-formed fetch is trusted to clear a member's household.
+ * Never throws, so a households failure cannot fail the people sync.
  */
-async function fetchHouseholds(token: string): Promise<Map<string, HouseholdInfo> | null> {
-  const householdMap = new Map<string, HouseholdInfo>(); // person pco_id -> household
+async function fetchHouseholds(token: string): Promise<HouseholdsFetch> {
+  const householdMap = new Map<string, HouseholdInfo>();
+  let householdCount = 0;
   let nextUrl: string | null =
     'https://api.planningcenteronline.com/people/v2/households?per_page=100&include=people';
 
-  try {
-    while (nextUrl) {
-      const res: Response = await fetch(nextUrl, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      if (!res.ok) {
-        console.error(`PCO households fetch failed (non-fatal): ${res.status}`);
-        return null;
-      }
-      const data = await res.json();
+  const fail = (reason: string): HouseholdsFetch => {
+    console.error(`PCO households fetch failed, household data left unchanged: ${reason}`);
+    return { ok: false, reason };
+  };
 
-      for (const household of data.data || []) {
-        const name = ((household.attributes?.name as string) || '').trim();
-        const people: { id: string }[] = household.relationships?.people?.data || [];
-        for (const p of people) {
-          if (!householdMap.has(p.id)) {
-            householdMap.set(p.id, { householdId: household.id, householdName: name });
-          }
+  while (nextUrl) {
+    let res: Response;
+    try {
+      res = await fetch(nextUrl, { headers: { Authorization: `Bearer ${token}` } });
+    } catch (e) {
+      return fail(`network error (${e instanceof Error ? e.message : String(e)})`);
+    }
+    if (res.status === 429) return fail('Planning Center rate limit reached (HTTP 429)');
+    if (!res.ok) return fail(`Planning Center returned HTTP ${res.status}`);
+
+    let data;
+    try {
+      data = await res.json();
+    } catch {
+      return fail('malformed response from Planning Center (not JSON)');
+    }
+    if (!Array.isArray(data?.data)) {
+      return fail('malformed response from Planning Center (no household list)');
+    }
+
+    for (const household of data.data) {
+      const people = household?.relationships?.people?.data;
+      if (!household?.id || !Array.isArray(people)) {
+        return fail('malformed response from Planning Center (household without a people list)');
+      }
+      householdCount++;
+      const name = ((household.attributes?.name as string) || '').trim();
+      for (const p of people as { id: string }[]) {
+        if (p?.id && !householdMap.has(p.id)) {
+          householdMap.set(p.id, { householdId: household.id, householdName: name });
         }
       }
-      nextUrl = data.links?.next || null;
     }
-  } catch (e) {
-    console.error('PCO households fetch error (non-fatal):', e);
-    return null;
+    nextUrl = data.links?.next || null;
   }
 
-  return householdMap;
+  // A church with members and zero households is far more likely a bad
+  // response than reality, and trusting it would clear every household.
+  if (householdCount === 0) return fail('Planning Center returned no households');
+
+  return { ok: true, map: householdMap };
 }
 
 async function fetchAllPeople(token: string): Promise<{ active: SyncedPerson[]; skippedInactive: number }> {
@@ -351,6 +381,19 @@ export interface PcoSyncResult {
   hcGeocoded: number;
   total: number;
   campuses: number;
+  /**
+   * Why the household step was skipped (existing household values were kept),
+   * or null when households synced normally.
+   */
+  householdsError: string | null;
+}
+
+/** One-line sync_log detail, including the households warning if any. */
+export function describeSyncResult(result: PcoSyncResult): string {
+  const base = `Imported ${result.imported}, archived ${result.archived}, ${result.campuses} campuses`;
+  return result.householdsError
+    ? `${base}. ${HOUSEHOLDS_NOT_UPDATED}: ${result.householdsError}`
+    : base;
 }
 
 export interface PcoSyncOptions {
@@ -419,12 +462,12 @@ export async function runPcoSync(token: string, opts: PcoSyncOptions = {}): Prom
     syncedPcoIds.push(person.pco_id);
     // Resolve house church from PCO campus — null if person has no campus
     const hcId = person.campus_pco_id ? (campusToHcId.get(person.campus_pco_id) || null) : null;
-    const household = households?.get(person.pco_id);
-    // When the households fetch failed (households === null), keep each
-    // member's existing household values instead of overwriting with NULL.
-    // On success, overwrite plainly so PCO household changes and removals
-    // still propagate.
-    const householdsOk = households !== null;
+    // When the households fetch failed, keep each member's existing household
+    // values instead of overwriting with NULL. On success, overwrite plainly:
+    // a person PCO returned who is in no household is cleared, so household
+    // changes and removals still propagate.
+    const householdsOk = households.ok;
+    const household = households.ok ? households.map.get(person.pco_id) : undefined;
 
     const result = await sql(
       `INSERT INTO members (first_name, last_name, email, phone, house_church_id,
@@ -504,6 +547,7 @@ export async function runPcoSync(token: string, opts: PcoSyncOptions = {}): Prom
     hcGeocoded,
     total: people.length,
     campuses: pcoCampuses.size,
+    householdsError: households.ok ? null : households.reason,
   };
 }
 
