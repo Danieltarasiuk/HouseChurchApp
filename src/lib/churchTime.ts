@@ -15,3 +15,18 @@ export function isoDateInChurchTz(at: Date = new Date()): string {
 }
 
 export const todayInChurchTz = (): string => isoDateInChurchTz();
+
+/**
+ * The church-local date `months` calendar months before `iso` (YYYY-MM-DD),
+ * clamped to the end of a shorter month (May 31 − 3 months = Feb 28/29).
+ */
+export function subtractMonthsISO(iso: string, months: number): string {
+  const [y, m, d] = iso.split('-').map(Number);
+  const firstOfTarget = new Date(Date.UTC(y, m - 1 - months, 1));
+  const lastDay = new Date(Date.UTC(firstOfTarget.getUTCFullYear(), firstOfTarget.getUTCMonth() + 1, 0)).getUTCDate();
+  firstOfTarget.setUTCDate(Math.min(d, lastDay));
+  return firstOfTarget.toISOString().slice(0, 10);
+}
+
+/** Start of a "last N months" window, in the church's calendar. */
+export const monthsAgoInChurchTz = (months: number): string => subtractMonthsISO(todayInChurchTz(), months);

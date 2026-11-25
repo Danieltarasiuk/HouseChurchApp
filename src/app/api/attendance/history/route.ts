@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { sql } from '@/lib/db';
+import { monthsAgoInChurchTz } from '@/lib/churchTime';
 import { requireViewer, forbidden, pastorsHc, leaderHcScope, LEADER_ROLES } from '@/lib/authz';
 
 /** Normalize a Postgres DATE value (Date object or ISO string) to 'YYYY-MM-DD' */
@@ -27,10 +28,9 @@ export async function GET(req: NextRequest) {
   const houseChurchId = params.get('house_church_id') || null;
   if (scope && houseChurchId && !pastorsHc(viewer, houseChurchId)) return forbidden();
 
-  // Start of the window: today minus N months
-  const start = new Date();
-  start.setMonth(start.getMonth() - months);
-  const startDate = start.toISOString().split('T')[0];
+  // Start of the window: N months before today in the church's calendar
+  // (the UTC date is already tomorrow on Sunday evenings in Miami).
+  const startDate = monthsAgoInChurchTz(months);
 
   try {
     const sessionRows = await sql(

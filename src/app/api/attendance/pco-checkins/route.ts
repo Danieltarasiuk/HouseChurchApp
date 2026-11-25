@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { sql } from '@/lib/db';
+import { todayInChurchTz } from '@/lib/churchTime';
+import { ageOn } from '@/lib/directory';
 import { requireViewer, leaderHcScope, LEADER_ROLES } from '@/lib/authz';
 import {
   getPcoSyncUserId,
@@ -9,15 +11,12 @@ import {
   PCO_ERROR_MESSAGES,
 } from '@/lib/pco';
 
+/** Under 18 today in the church's calendar (not the server's UTC date). */
 function isMinor(dob: unknown): boolean {
   if (!dob) return false;
-  const iso = dob instanceof Date ? dob.toISOString() : String(dob);
-  const birth = new Date(iso.split('T')[0] + 'T00:00:00');
-  if (isNaN(birth.getTime())) return false;
-  const today = new Date();
-  let age = today.getFullYear() - birth.getFullYear();
-  const m = today.getMonth() - birth.getMonth();
-  if (m < 0 || (m === 0 && today.getDate() < birth.getDate())) age--;
+  const iso = (dob instanceof Date ? dob.toISOString() : String(dob)).slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(iso)) return false;
+  const age = ageOn(iso, todayInChurchTz());
   return age >= 0 && age < 18;
 }
 
