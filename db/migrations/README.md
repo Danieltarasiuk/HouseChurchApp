@@ -44,5 +44,5 @@ the owner's name and password (same host, pooled endpoint, database and
 | # | What | Applied to production |
 |---|------|-----------------------|
 | 001 | house churches → groups (table, `group_id`, role `group_leader`, stored values, constraint and index names) | 2026-11-25 |
-| 002 | churches (expand): `churches`, `church_memberships`, `users.is_platform_admin`, `church_id` (default CityChurch) and per-church unique indexes, E5 foreign-key indexes, `kinly_app` grants | not yet |
-| 003 | churches (contract): `church_id` required, global uniques dropped, `users.role/status/language`, `prayer_requests.is_private`, `attendance.notes` dropped, row-level security on 15 tables | not yet |
+| 002 | churches (expand): `churches`, `church_memberships`, `users.is_platform_admin`, `church_id` (default CityChurch) and per-church unique indexes, E5 foreign-key indexes, `kinly_app` grants | 2026-11-25 |
+| 003 | churches (contract): `church_id` required, global uniques dropped, `users.role/status/language`, `prayer_requests.is_private`, `attendance.notes` dropped, row-level security on 15 tables | 2026-11-25 |
