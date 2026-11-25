@@ -163,12 +163,19 @@ assertSandboxable(ddl);
 
 const tmpSchema = `drift_check_${randomBytes(6).toString('hex')}`;
 
+/** Call right after BEGIN: SET LOCAL ends with the transaction. */
+async function applyTimeouts(c) {
+  await c.query("SET LOCAL statement_timeout = '60s'");
+  await c.query("SET LOCAL lock_timeout = '10s'");
+}
+
 async function connect(url, label) {
   try {
     const c = new Client(url);
     await c.connect();
-    await c.query("SET statement_timeout = '60s'");
-    await c.query("SET lock_timeout = '10s'");
+    // Timeouts are set per transaction (applyTimeouts), never per session:
+    // a session-level SET would persist on Neon's pooled backend and leak to
+    // whichever client, including the app, gets that backend next.
     return c;
   } catch (e) {
     // A malformed or unreachable URL is a configuration problem, not drift.
@@ -223,6 +230,7 @@ try {
   // including the application, and make its writes fail. Transaction scope
   // ends at ROLLBACK and cannot leak.
   await sourceClient.query('BEGIN TRANSACTION READ ONLY');
+  await applyTimeouts(sourceClient);
   live = {
     cols: (await sourceClient.query(COLS, ['public'])).rows.filter((r) => !IGNORED_TABLES.has(r.tbl)),
     cons: (await sourceClient.query(CONS, ['public'])).rows.filter((r) => !IGNORED_TABLES.has(r.tbl)),
@@ -231,6 +239,7 @@ try {
   await sourceClient.query('ROLLBACK');
 
   await sandboxClient.query('BEGIN');
+  await applyTimeouts(sandboxClient);
   await sandboxClient.query(`CREATE SCHEMA ${tmpSchema}`);
   await sandboxClient.query(`SET LOCAL search_path TO ${tmpSchema}`);
   try {

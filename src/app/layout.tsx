@@ -22,6 +22,7 @@ export default function RootLayout({
           next/script's afterInteractive/lazyOnload do) never shows the
           overlay. The file is ~5 KB.
         */}
+        {/* eslint-disable-next-line @next/next/no-sync-scripts -- must load before DOMContentLoaded, see above */}
         {GIVING_URL && <script src={CHURCH_CENTER_MODAL_SRC} />}
       </head>
       <body>

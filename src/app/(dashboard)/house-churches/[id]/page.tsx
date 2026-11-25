@@ -5,6 +5,8 @@ import dynamic from 'next/dynamic';
 import { useParams, useRouter } from 'next/navigation';
 import { useSession } from 'next-auth/react';
 import { useLang } from '@/context/LangContext';
+import { PrivacyControls } from '@/components/PrivacyControls';
+import { birthdayMD, birthdayKeyMD, formatBirthdayMD, isMinorRow } from '@/lib/memberDisplay';
 import { ArrowLeft, Pencil } from 'lucide-react';
 import HouseChurchModal from '@/components/HouseChurchModal';
 import { getHCColor } from '@/lib/map-utils';
@@ -36,21 +38,24 @@ interface HouseChurch {
   member_count: number;
 }
 
+/** From /api/members: fields this viewer may not see are absent. */
 interface Member {
   id: string;
   first_name: string;
   last_name: string;
-  email: string;
-  phone: string | null;
+  email?: string | null;
+  phone?: string | null;
   role: string;
   gender: string | null;
-  date_of_birth: string | null;
-  address_street: string | null;
-  address_city: string | null;
-  address_state: string | null;
-  address_zip: string | null;
-  latitude: number | null;
-  longitude: number | null;
+  date_of_birth?: string | null;
+  birthday?: string | null;
+  is_minor?: boolean;
+  address_street?: string | null;
+  address_city?: string | null;
+  address_state?: string | null;
+  address_zip?: string | null;
+  latitude?: number | null;
+  longitude?: number | null;
   house_church_id: string | null;
 }
 
@@ -94,13 +99,8 @@ function calcAge(dob: string): number | null {
   return age > 120 ? null : age;
 }
 
-function formatBirthday(dob: string, lang: string): string {
-  const d = parseDate(dob);
-  if (!d) return '—';
-  return d.toLocaleDateString(lang === 'es' ? 'es-US' : 'en-US', { month: 'short', day: 'numeric' });
-}
 
-function formatMemberAddress(m: { address_street: string | null; address_city: string | null; address_state: string | null; address_zip: string | null }): string | null {
+function formatMemberAddress(m: { address_street?: string | null; address_city?: string | null; address_state?: string | null; address_zip?: string | null }): string | null {
   const stateZip = m.address_state && m.address_zip ? `${m.address_state} ${m.address_zip}` : m.address_state || m.address_zip;
   const parts = [m.address_street, m.address_city, stateZip].filter(Boolean);
   return parts.length > 0 ? parts.join(', ') : null;
@@ -108,13 +108,6 @@ function formatMemberAddress(m: { address_street: string | null; address_city: s
 
 type SortColumn = 'name' | 'gender' | 'age' | 'birthday' | 'address' | 'email' | 'phone';
 type SortDir = 'asc' | 'desc';
-
-function birthdayKey(dob: string | null): number | null {
-  if (!dob) return null;
-  const d = parseDate(dob);
-  if (!d) return null;
-  return (d.getMonth() + 1) * 100 + d.getDate();
-}
 
 function compareSorted(a: string | number | null, b: string | number | null, dir: SortDir): number {
   if (a == null && b == null) return 0;
@@ -219,11 +212,7 @@ export default function HouseChurchDetailPage() {
 
   const filteredMembers = useMemo(() => {
     if (showMinors) return hcMembers;
-    return hcMembers.filter(m => {
-      if (!m.date_of_birth) return true;
-      const age = calcAge(m.date_of_birth);
-      return age === null || age >= 18;
-    });
+    return hcMembers.filter(m => !isMinorRow(m, calcAge));
   }, [hcMembers, showMinors]);
 
   const sortedMembers = useMemo(() => {
@@ -245,8 +234,8 @@ export default function HouseChurchDetailPage() {
           vb = b.date_of_birth ? calcAge(b.date_of_birth) : null;
           break;
         case 'birthday':
-          va = birthdayKey(a.date_of_birth);
-          vb = birthdayKey(b.date_of_birth);
+          va = birthdayKeyMD(birthdayMD(a));
+          vb = birthdayKeyMD(birthdayMD(b));
           break;
         case 'address':
           va = formatMemberAddress(a);
@@ -257,8 +246,8 @@ export default function HouseChurchDetailPage() {
           vb = b.email || null;
           break;
         case 'phone':
-          va = a.phone;
-          vb = b.phone;
+          va = a.phone ?? null;
+          vb = b.phone ?? null;
           break;
       }
       return compareSorted(va!, vb!, sortDir);
@@ -392,7 +381,7 @@ export default function HouseChurchDetailPage() {
               ) : (
                 sortedMembers.map((m) => {
                   const age = m.date_of_birth ? calcAge(m.date_of_birth) : null;
-                  const bday = m.date_of_birth ? formatBirthday(m.date_of_birth, language) : '—';
+                  const bday = formatBirthdayMD(birthdayMD(m), language);
                   const mAddr = formatMemberAddress(m);
 
                   return (
@@ -424,6 +413,16 @@ export default function HouseChurchDetailPage() {
             </tbody>
           </table>
         </div>
+      </div>
+
+      {/* Directory privacy for this house church (admins and its pastor only) */}
+      <div className="card card-padded" style={{ marginTop: '20px' }}>
+        <PrivacyControls
+          scope="house_church"
+          id={hcId}
+          title={t('privacy.hcTitle')}
+          description={t('privacy.hcDesc')}
+        />
       </div>
 
       {/* Edit Modal */}

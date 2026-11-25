@@ -7,27 +7,33 @@ import { useLang } from '@/context/LangContext';
 import { Map as MapIcon } from 'lucide-react';
 import { getHCColor } from '@/lib/map-utils';
 import type { MapMarker } from '@/lib/map-utils';
+import { birthdayMD, birthdayKeyMD, formatBirthdayMD, isMinorRow } from '@/lib/memberDisplay';
+import { MemberDetailPanel } from '@/components/MemberDetailPanel';
 
 const MapComponent = dynamic(() => import('@/components/MapComponent'), { ssr: false });
 
+/** From /api/members: fields this viewer may not see are absent. */
 interface Member {
   id: string;
   first_name: string;
   last_name: string;
-  email: string;
-  phone: string | null;
+  email?: string | null;
+  phone?: string | null;
   role: string;
   house_church_id: string | null;
   house_church_name: string | null;
   gender: string | null;
-  date_of_birth: string | null;
-  address_street: string | null;
-  address_city: string | null;
-  address_state: string | null;
-  address_zip: string | null;
-  latitude: number | null;
-  longitude: number | null;
-  attendance_note: string | null;
+  date_of_birth?: string | null;
+  birthday?: string | null;
+  is_minor?: boolean;
+  address_street?: string | null;
+  address_city?: string | null;
+  address_state?: string | null;
+  address_zip?: string | null;
+  latitude?: number | null;
+  longitude?: number | null;
+  household_name?: string | null;
+  attendance_note?: string | null;
 }
 
 const roleLabel = (role: string, t: (k: string) => string) => {
@@ -61,13 +67,8 @@ function calcAge(dob: string): number | null {
   return age > 120 ? null : age;
 }
 
-function formatBirthday(dob: string, lang: string): string {
-  const d = parseDate(dob);
-  if (!d) return '—';
-  return d.toLocaleDateString(lang === 'es' ? 'es-US' : 'en-US', { month: 'short', day: 'numeric' });
-}
 
-function formatAddress(m: { address_street: string | null; address_city: string | null; address_state: string | null; address_zip: string | null }): string | null {
+function formatAddress(m: { address_street?: string | null; address_city?: string | null; address_state?: string | null; address_zip?: string | null }): string | null {
   const stateZip = m.address_state && m.address_zip ? `${m.address_state} ${m.address_zip}` : m.address_state || m.address_zip;
   const parts = [m.address_street, m.address_city, stateZip].filter(Boolean);
   return parts.length > 0 ? parts.join(', ') : null;
@@ -75,13 +76,6 @@ function formatAddress(m: { address_street: string | null; address_city: string 
 
 type SortColumn = 'name' | 'house_church' | 'gender' | 'age' | 'birthday' | 'address' | 'email' | 'phone';
 type SortDir = 'asc' | 'desc';
-
-function birthdayKey(dob: string | null): number | null {
-  if (!dob) return null;
-  const d = parseDate(dob);
-  if (!d) return null;
-  return (d.getMonth() + 1) * 100 + d.getDate();
-}
 
 function compareSorted(a: string | number | null, b: string | number | null, dir: SortDir): number {
   if (a == null && b == null) return 0;
@@ -109,6 +103,7 @@ export default function MembersPage() {
   const [sortCol, setSortCol] = useState<SortColumn | null>(null);
   const [sortDir, setSortDir] = useState<SortDir | null>(null);
   const [showMinors, setShowMinors] = useState(false);
+  const [selected, setSelected] = useState<Member | null>(null);
 
   useEffect(() => {
     fetch('/api/members')
@@ -133,10 +128,7 @@ export default function MembersPage() {
     const q = search.toLowerCase();
     const fullName = `${m.first_name} ${m.last_name}`.toLowerCase();
     if (!fullName.includes(q) && !m.email?.toLowerCase().includes(q)) return false;
-    if (!showMinors && m.date_of_birth) {
-      const age = calcAge(m.date_of_birth);
-      if (age !== null && age < 18) return false;
-    }
+    if (!showMinors && isMinorRow(m, calcAge)) return false;
     return true;
   });
 
@@ -174,8 +166,8 @@ export default function MembersPage() {
           vb = b.date_of_birth ? calcAge(b.date_of_birth) : null;
           break;
         case 'birthday':
-          va = birthdayKey(a.date_of_birth);
-          vb = birthdayKey(b.date_of_birth);
+          va = birthdayKeyMD(birthdayMD(a));
+          vb = birthdayKeyMD(birthdayMD(b));
           break;
         case 'address':
           va = formatAddress(a);
@@ -186,8 +178,8 @@ export default function MembersPage() {
           vb = b.email || null;
           break;
         case 'phone':
-          va = a.phone;
-          vb = b.phone;
+          va = a.phone ?? null;
+          vb = b.phone ?? null;
           break;
       }
       return compareSorted(va!, vb!, sortDir);
@@ -302,14 +294,16 @@ export default function MembersPage() {
                 ) : (
                   sorted.map((member) => {
                     const age = member.date_of_birth ? calcAge(member.date_of_birth) : null;
-                    const bday = member.date_of_birth ? formatBirthday(member.date_of_birth, language) : '—';
+                    const bday = formatBirthdayMD(birthdayMD(member), language);
                     const addr = formatAddress(member);
 
                     return (
                       <tr key={member.id}>
                         <td>
                           <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                            {member.first_name} {member.last_name}
+                            <button type="button" className="link-button" onClick={() => setSelected(member)}>
+                              {member.first_name} {member.last_name}
+                            </button>
                             {member.attendance_note && (
                               <span style={{ color: 'var(--text-tertiary)', fontSize: '13px' }}>
                                 — {member.attendance_note}
@@ -345,6 +339,7 @@ export default function MembersPage() {
           </div>
         )}
       </div>
+      {selected && <MemberDetailPanel member={selected} onClose={() => setSelected(null)} />}
     </div>
   );
 }

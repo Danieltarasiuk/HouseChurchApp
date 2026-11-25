@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { auth } from '@/lib/auth';
 import { sql } from '@/lib/db';
+import { requireViewer, forbidden, pastorsHc, leaderHcScope, LEADER_ROLES } from '@/lib/authz';
 
 /** Normalize a Postgres DATE value (Date object or ISO string) to 'YYYY-MM-DD' */
 function toDateStr(v: unknown): string {
@@ -10,22 +10,12 @@ function toDateStr(v: unknown): string {
 const VALID_MONTHS = [1, 2, 3, 4];
 const VALID_TYPES = ['sunday_service', 'house_church'];
 
-async function authorize() {
-  const session = await auth();
-  if (!session?.user?.id) {
-    return { error: NextResponse.json({ error: 'Unauthorized' }, { status: 401 }) };
-  }
-  const role = (session.user as { role?: string }).role;
-  if (role !== 'admin' && role !== 'house_church_pastor') {
-    return { error: NextResponse.json({ error: 'Forbidden' }, { status: 403 }) };
-  }
-  return { userId: session.user.id, role };
-}
-
 /** Recorded attendance sessions in the window, newest first. */
 export async function GET(req: NextRequest) {
-  const authz = await authorize();
-  if (authz.error) return authz.error;
+  const { viewer, error } = await requireViewer({ roles: LEADER_ROLES });
+  if (error) return error;
+  // null = all house churches (admin); a pastor gets exactly their own.
+  const scope = leaderHcScope(viewer);
 
   const params = req.nextUrl.searchParams;
   const attendanceType = params.get('attendance_type') || 'sunday_service';
@@ -37,6 +27,7 @@ export async function GET(req: NextRequest) {
   const months = VALID_MONTHS.includes(monthsRaw) ? monthsRaw : 2;
 
   const houseChurchId = params.get('house_church_id') || null;
+  if (scope && houseChurchId && !pastorsHc(viewer, houseChurchId)) return forbidden();
 
   const start = new Date();
   start.setMonth(start.getMonth() - months);
@@ -51,7 +42,8 @@ export async function GET(req: NextRequest) {
                WHERE a.date = s.date
                  AND a.attendance_type = s.attendance_type
                  AND a.house_church_id IS NOT DISTINCT FROM s.house_church_id
-                 AND a.present = true) AS present_count,
+                 AND a.present = true
+                 AND ($4::text[] IS NULL OR a.member_id IN (SELECT id FROM members WHERE house_church_id::text = ANY($4::text[])))) AS present_count,
               (SELECT COUNT(*)::int FROM attendance a
                JOIN members m ON m.id = a.member_id
                WHERE a.date = s.date
@@ -59,15 +51,17 @@ export async function GET(req: NextRequest) {
                  AND a.house_church_id IS NOT DISTINCT FROM s.house_church_id
                  AND a.present = true
                  AND m.date_of_birth IS NOT NULL
-                 AND m.date_of_birth > s.date - INTERVAL '18 years') AS kid_count
+                 AND m.date_of_birth > s.date - INTERVAL '18 years'
+                 AND ($4::text[] IS NULL OR m.house_church_id::text = ANY($4::text[]))) AS kid_count
        FROM attendance_sessions s
        LEFT JOIN house_churches hc ON s.house_church_id = hc.id
        LEFT JOIN users u ON s.recorded_by = u.id
        WHERE s.attendance_type = $1
          AND s.date >= $2
          AND ($3::uuid IS NULL OR s.house_church_id = $3::uuid)
+         AND ($1 <> 'house_church' OR $4::text[] IS NULL OR s.house_church_id::text = ANY($4::text[]))
        ORDER BY s.date DESC`,
-      [attendanceType, startDate, houseChurchId]
+      [attendanceType, startDate, houseChurchId, scope]
     );
 
     return NextResponse.json({
@@ -95,8 +89,8 @@ export async function GET(req: NextRequest) {
  * that share the date.
  */
 export async function DELETE(req: NextRequest) {
-  const authz = await authorize();
-  if (authz.error) return authz.error;
+  const { viewer, error } = await requireViewer({ roles: LEADER_ROLES });
+  if (error) return error;
 
   let body: { date?: unknown; attendance_type?: unknown; house_church_id?: unknown };
   try {
@@ -118,20 +112,10 @@ export async function DELETE(req: NextRequest) {
   }
 
   try {
-    // HC pastors may only delete house church sessions of house churches they pastor.
-    if (authz.role !== 'admin') {
-      if (attendance_type !== 'house_church' || !houseChurchId) {
-        return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
-      }
-      const myHcRows = await sql(
-        `SELECT hc.id FROM house_churches hc
-         JOIN members m ON hc.pastor_id = m.id
-         WHERE m.user_id = $1`,
-        [authz.userId]
-      );
-      if (!myHcRows.some((r) => r.id === houseChurchId)) {
-        return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
-      }
+    // HC pastors may only delete house church sessions of house churches
+    // they pastor (a Sunday session holds everyone's attendance).
+    if (viewer.role !== 'admin' && (attendance_type !== 'house_church' || !pastorsHc(viewer, houseChurchId))) {
+      return forbidden();
     }
 
     const deleted = await sql(

@@ -5,6 +5,7 @@ import bcryptjs from 'bcryptjs';
 import { sql } from '@/lib/db';
 import { authConfig } from '@/lib/auth.config';
 import { isProtectedPath } from '@/lib/protected-paths';
+import { linkOrCreateMember } from '@/lib/memberLink';
 
 /**
  * How long a role cached in the JWT is trusted before it is re-read from the
@@ -15,54 +16,6 @@ import { isProtectedPath } from '@/lib/protected-paths';
  * user signed out, so this only narrows the window.
  */
 const ROLE_TTL_MS = 5 * 60 * 1000;
-
-/** Split a display name into first/last, falling back to the email local part. */
-function splitName(name: string | null | undefined, email: string): { first: string; last: string } {
-  const clean = (name || '').trim().replace(/\s+/g, ' ');
-  if (!clean) return { first: email.split('@')[0], last: '' };
-  const parts = clean.split(' ');
-  if (parts.length === 1) return { first: parts[0], last: '' };
-  return { first: parts[0], last: parts.slice(1).join(' ') };
-}
-
-/**
- * Give a newly created user a members row so they show up in Members,
- * Attendance and Pastoral Care. Prefers linking an existing (typically
- * PCO-imported) member with the same email over creating a duplicate.
- *
- * Never throws: a failure here must not block sign-in, since the users
- * row is already committed and auth does not depend on members.
- */
-async function linkOrCreateMember(userId: string, email: string, name: string | null | undefined): Promise<void> {
-  try {
-    const linked = await sql(
-      `UPDATE members SET user_id = $1
-       WHERE id = (
-         SELECT id FROM members
-         WHERE LOWER(email) = $2 AND user_id IS NULL
-         ORDER BY joined_at NULLS LAST
-         LIMIT 1
-       )
-       RETURNING id`,
-      [userId, email]
-    );
-    if (linked.length > 0) return;
-
-    // An email match that is already linked to someone else: leave it alone
-    // rather than creating a confusing duplicate.
-    const taken = await sql('SELECT id FROM members WHERE LOWER(email) = $1 LIMIT 1', [email]);
-    if (taken.length > 0) return;
-
-    const { first, last } = splitName(name, email);
-    await sql(
-      `INSERT INTO members (user_id, first_name, last_name, email, house_church_id, is_active)
-       VALUES ($1, $2, $3, $4, NULL, true)`,
-      [userId, first, last, email]
-    );
-  } catch (error) {
-    console.error('Member link/create failed for user', userId, error);
-  }
-}
 
 export const { handlers, auth, signIn, signOut } = NextAuth({
   ...authConfig,

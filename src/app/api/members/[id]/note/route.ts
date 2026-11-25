@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { auth } from '@/lib/auth';
 import { sql } from '@/lib/db';
+import { requireViewer, forbidden, leadsMemberIn, memberHouseChurches, LEADER_ROLES } from '@/lib/authz';
 
 const MAX_NOTE_LENGTH = 120;
 
@@ -9,18 +9,15 @@ const MAX_NOTE_LENGTH = 120;
  * this app — the PCO sync never writes or clears it.
  */
 export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
-  const session = await auth();
-  if (!session?.user) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-  }
-
-  // Same population that records attendance: any HC pastor may edit any note.
-  const userRole = (session.user as { role?: string }).role;
-  if (userRole !== 'admin' && userRole !== 'house_church_pastor') {
-    return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
-  }
+  const { viewer, error } = await requireViewer({ roles: LEADER_ROLES });
+  if (error) return error;
 
   const { id } = await params;
+
+  // Admins, and the pastor of this member's house church.
+  const hcs = await memberHouseChurches([id]);
+  if (!hcs.has(id)) return NextResponse.json({ error: 'Member not found' }, { status: 404 });
+  if (!leadsMemberIn(viewer, hcs.get(id))) return forbidden();
 
   let body: { attendance_note?: unknown };
   try {

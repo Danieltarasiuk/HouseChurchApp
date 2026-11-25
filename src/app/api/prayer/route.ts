@@ -1,32 +1,13 @@
 import { NextResponse } from 'next/server';
-import { auth } from '@/lib/auth';
 import { sql } from '@/lib/db';
+import { requireViewer, forbidden, isAdmin, pastorsHc } from '@/lib/authz';
+import { canSeePrayer } from '@/lib/prayerVisibility';
 
 export async function GET() {
-  const session = await auth();
-  if (!session?.user?.id) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-  }
-
-  const userRole = (session.user as { role?: string }).role;
+  const { viewer, error } = await requireViewer();
+  if (error) return error;
 
   try {
-    // Get house churches where current user is pastor
-    const myHcIds = await sql(
-      `SELECT hc.id FROM house_churches hc
-       JOIN members m ON hc.pastor_id = m.id
-       WHERE m.user_id = $1`,
-      [session.user.id]
-    );
-    const hcIdSet = new Set(myHcIds.map((r: Record<string, string>) => r.id));
-
-    // Get current user's house church (from members table)
-    const myMember = await sql(
-      'SELECT house_church_id FROM members WHERE user_id = $1 AND is_active = true LIMIT 1',
-      [session.user.id]
-    );
-    const myHcId = myMember[0]?.house_church_id;
-
     const prayers = await sql(
       `SELECT pr.id, pr.title, pr.description, pr.status, pr.visibility,
               pr.house_church_id, pr.member_id, pr.created_at,
@@ -38,49 +19,26 @@ export async function GET() {
        ORDER BY pr.created_at DESC`
     );
 
-    // Filter by visibility
-    const visible = prayers.filter((p: Record<string, string>) => {
-      // Creator always sees their own
-      if (p.user_id === session.user!.id) return true;
-
-      // Admins and HC pastors see everything in scope
-      if (userRole === 'admin') return true;
-
-      if (p.visibility === 'public') return true;
-
-      if (p.visibility === 'house_church') {
-        // Same house church
-        if (myHcId && p.house_church_id === myHcId) return true;
-        // HC pastor for this HC
-        if (p.house_church_id && hcIdSet.has(p.house_church_id)) return true;
-        return false;
-      }
-
-      if (p.visibility === 'private') {
-        // HC pastor for the member's HC
-        if (userRole === 'house_church_pastor' && p.house_church_id && hcIdSet.has(p.house_church_id)) return true;
-        return false;
-      }
-
-      return false;
-    });
-
+    const visible = prayers.filter((p) =>
+      canSeePrayer(viewer, { user_id: p.user_id, visibility: p.visibility, house_church_id: p.house_church_id })
+    );
     return NextResponse.json({ prayers: visible });
-  } catch (error) {
-    console.error('Prayer error:', error);
+  } catch (err) {
+    console.error('Prayer error:', err);
     return NextResponse.json({ error: 'Failed to load prayers' }, { status: 500 });
   }
 }
 
 export async function POST(request: Request) {
-  const session = await auth();
-  if (!session?.user?.id) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-  }
+  const { viewer, error } = await requireViewer();
+  if (error) return error;
 
   try {
     const body = await request.json();
-    const { title, description, visibility, house_church_id, member_id } = body;
+    // house_church_id from the client is ignored: it is always taken from
+    // the member the request is for, so nobody can file into another group.
+    const { title, description, visibility } = body;
+    const member_id: string | null = typeof body.member_id === 'string' && body.member_id ? body.member_id : null;
 
     if (!title?.trim()) {
       return NextResponse.json({ error: 'Title is required' }, { status: 400 });
@@ -91,31 +49,22 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Invalid visibility' }, { status: 400 });
     }
 
-    // Resolve house_church_id:
-    // - If submitting on behalf (member_id provided), resolve from target member's record
-    // - Otherwise resolve from submitter's own member record
-    let resolvedHcId = house_church_id || null;
+    // "On behalf of" another member: admins for anyone, pastors only for
+    // members of their own house church, members only for themselves.
+    let resolvedHcId: string | null;
     let resolvedVis = vis;
-    if (!resolvedHcId) {
-      try {
-        let memberRow;
-        if (member_id) {
-          // On behalf: use target member's HC
-          memberRow = await sql(
-            'SELECT house_church_id FROM members WHERE id = $1 AND is_active = true LIMIT 1',
-            [member_id]
-          );
-        } else {
-          // For myself: use submitter's HC
-          memberRow = await sql(
-            'SELECT house_church_id FROM members WHERE user_id = $1 AND is_active = true LIMIT 1',
-            [session.user.id]
-          );
-        }
-        resolvedHcId = memberRow[0]?.house_church_id || null;
-      } catch {
-        resolvedHcId = null;
+    if (member_id && member_id !== viewer.memberId) {
+      const target = await sql(
+        'SELECT house_church_id FROM members WHERE id::text = $1 AND is_active = true LIMIT 1',
+        [member_id]
+      );
+      if (target.length === 0) {
+        return NextResponse.json({ error: 'Member not found' }, { status: 404 });
       }
+      resolvedHcId = target[0].house_church_id ?? null;
+      if (!isAdmin(viewer) && !pastorsHc(viewer, resolvedHcId)) return forbidden();
+    } else {
+      resolvedHcId = viewer.houseChurchId;
     }
     if (vis === 'house_church' && !resolvedHcId) {
       // Graceful fallback: if no HC found, save as public instead of rejecting
@@ -126,7 +75,7 @@ export async function POST(request: Request) {
       `INSERT INTO prayer_requests (title, description, user_id, member_id, status, visibility, house_church_id)
        VALUES ($1, $2, $3, $4, 'active', $5, $6)
        RETURNING id, title, description, status, visibility, house_church_id, member_id, created_at, user_id`,
-      [title.trim(), description?.trim() || null, session.user.id, member_id || null, resolvedVis, resolvedHcId]
+      [title.trim(), description?.trim() || null, viewer.userId, member_id, resolvedVis, resolvedHcId]
     );
 
     // Resolve member_name for the response if on-behalf
@@ -139,7 +88,8 @@ export async function POST(request: Request) {
       memberName = mRow[0]?.name || null;
     }
 
-    return NextResponse.json({ prayer: { ...result[0], requester_name: session.user.name, member_name: memberName } });
+    const me = await sql('SELECT name FROM users WHERE id = $1', [viewer.userId]);
+    return NextResponse.json({ prayer: { ...result[0], requester_name: me[0]?.name ?? null, member_name: memberName } });
   } catch (error) {
     console.error('Create prayer error:', error);
     const msg = error instanceof Error ? error.message : 'Failed to create prayer request';
@@ -148,12 +98,8 @@ export async function POST(request: Request) {
 }
 
 export async function PATCH(request: Request) {
-  const session = await auth();
-  if (!session?.user?.id) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-  }
-
-  const userRole = (session.user as { role?: string }).role;
+  const { viewer, error } = await requireViewer();
+  if (error) return error;
 
   try {
     const body = await request.json();
@@ -164,16 +110,15 @@ export async function PATCH(request: Request) {
     }
 
     // Check ownership or role
-    const existing = await sql('SELECT user_id FROM prayer_requests WHERE id = $1', [id]);
+    const existing = await sql('SELECT user_id, house_church_id FROM prayer_requests WHERE id::text = $1', [String(id)]);
     if (existing.length === 0) {
       return NextResponse.json({ error: 'Not found' }, { status: 404 });
     }
 
-    const isOwner = existing[0].user_id === session.user.id;
-    const isPrivileged = userRole === 'admin' || userRole === 'house_church_pastor';
-
-    if (!isOwner && !isPrivileged) {
-      return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+    // Owner, admins, and the pastor of the request's house church only.
+    const isOwner = existing[0].user_id === viewer.userId;
+    if (!isOwner && !isAdmin(viewer) && !pastorsHc(viewer, existing[0].house_church_id)) {
+      return forbidden();
     }
 
     const updates: string[] = [];

@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { auth } from '@/lib/auth';
 import { sql } from '@/lib/db';
+import { requireViewer, forbidden, pastorsHc, leaderHcScope, LEADER_ROLES } from '@/lib/authz';
+import { loadVisibilitySettings, redactMember } from '@/lib/directory';
+import { todayInChurchTz } from '@/lib/churchTime';
 
 /** Normalize a Postgres DATE value (Date object or ISO string) to 'YYYY-MM-DD' */
 function toDateStr(v: unknown): string {
@@ -9,27 +11,20 @@ function toDateStr(v: unknown): string {
 }
 
 export async function GET(req: NextRequest) {
-  const session = await auth();
-  if (!session?.user?.id) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-  }
+  const { viewer, error } = await requireViewer({ roles: LEADER_ROLES });
+  if (error) return error;
+  const userRole = viewer.role;
+  const userId = viewer.userId;
 
-  const userRole = (session.user as { role?: string }).role;
-  if (userRole !== 'admin' && userRole !== 'house_church_pastor') {
-    return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
-  }
-
+  // Pastors: their own house churches only, and an explicit filter must be
+  // one of them. A pastor linked to no house church gets an empty list.
+  const scope = leaderHcScope(viewer);
   const hcFilter = req.nextUrl.searchParams.get('house_church_id');
+  if (scope && hcFilter && !pastorsHc(viewer, hcFilter)) return forbidden();
+  if (scope && scope.length === 0) return NextResponse.json({ members: [] });
 
   try {
-    // Find house churches where current user is pastor
-    const myHcIds = await sql(
-      `SELECT hc.id FROM house_churches hc
-       JOIN members m ON hc.pastor_id = m.id
-       WHERE m.user_id = $1`,
-      [session.user.id]
-    );
-    const myHcIdSet = new Set(myHcIds.map((r: Record<string, string>) => r.id));
+    const myHcIdSet = new Set(viewer.pastoredHcIds);
 
     // Build member query with filters
     let memberQuery = `
@@ -49,11 +44,10 @@ export async function GET(req: NextRequest) {
     if (hcFilter) {
       queryParams.push(hcFilter);
       memberQuery += ` AND m.house_church_id = $${queryParams.length}`;
-    } else if (userRole === 'house_church_pastor' && myHcIds.length > 0) {
-      // Default to own HC members
-      const placeholders = myHcIds.map((_: Record<string, string>, i: number) => `$${i + 1}`).join(',');
-      myHcIds.forEach((r: Record<string, string>) => queryParams.push(r.id));
-      memberQuery += ` AND m.house_church_id IN (${placeholders})`;
+    } else if (scope) {
+      // Pastor with no filter: all of their own house churches
+      queryParams.push(`{${scope.join(',')}}`);
+      memberQuery += ` AND m.house_church_id::text = ANY($${queryParams.length}::text[])`;
     }
 
     memberQuery += ' ORDER BY m.first_name, m.last_name';
@@ -105,7 +99,7 @@ export async function GET(req: NextRequest) {
        WHERE member_id IN (${meetingPlaceholders})
          AND flag_color = 'yellow' AND is_resolved = false AND created_by = $${memberIds.length + 1}
        GROUP BY member_id`,
-      [...memberIds, session.user.id]
+      [...memberIds, userId]
     );
     const yellowMap = new Map<string, number>();
     for (const yf of yellowFlags) yellowMap.set(yf.member_id, yf.cnt);
@@ -136,7 +130,7 @@ export async function GET(req: NextRequest) {
              AND flag_color = 'red' AND is_resolved = false
              AND (created_by = $${memberIds.length + 1} OR member_id IN (${hcPlaceholders}))
            GROUP BY member_id`,
-          [...memberIds, session.user.id, ...hcMemberIds]
+          [...memberIds, userId, ...hcMemberIds]
         );
       } else {
         redFlags = await sql(
@@ -145,7 +139,7 @@ export async function GET(req: NextRequest) {
            WHERE member_id IN (${meetingPlaceholders})
              AND flag_color = 'red' AND is_resolved = false AND created_by = $${memberIds.length + 1}
            GROUP BY member_id`,
-          [...memberIds, session.user.id]
+          [...memberIds, userId]
         );
       }
     }
@@ -181,7 +175,15 @@ export async function GET(req: NextRequest) {
       return a.last_contacted.localeCompare(b.last_contacted);
     });
 
-    return NextResponse.json({ members: result });
+    // Same directory rules as /api/members. After the scoping above the
+    // viewer is an admin or this member's pastor, so this removes nothing
+    // today; it keeps one code path deciding what member data leaves.
+    const settings = await loadVisibilitySettings();
+    const today = todayInChurchTz();
+    return NextResponse.json({
+      members: result.map((m: Record<string, unknown> & { id: string; house_church_id: string | null }) =>
+        redactMember(viewer, m, settings, today)),
+    });
   } catch (error) {
     console.error('Pastoral members error:', error);
     return NextResponse.json({ error: 'Failed to load members' }, { status: 500 });

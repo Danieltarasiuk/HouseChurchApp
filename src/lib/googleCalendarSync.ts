@@ -15,8 +15,9 @@
 import { google, calendar_v3 } from 'googleapis';
 import { CALENDAR_CATEGORIES, isCalendarCategory } from './calendarCategories';
 import { addDaysISO, toHHMM } from './calendarDates';
+import { CHURCH_TIME_ZONE } from './churchTime';
 
-export const CALENDAR_TIME_ZONE = 'America/New_York';
+export const CALENDAR_TIME_ZONE = CHURCH_TIME_ZONE;
 
 /** The fields of a calendar_events row that matter to Google. */
 export interface PushableRow {

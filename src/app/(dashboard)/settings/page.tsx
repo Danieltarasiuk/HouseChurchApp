@@ -4,7 +4,16 @@ import { Suspense, useState, useEffect, useCallback } from 'react';
 import { useSession } from 'next-auth/react';
 import { useSearchParams } from 'next/navigation';
 import { useLang } from '@/context/LangContext';
-import { Shield, CloudDownload, Link as LinkIcon, CheckCircle, Trash2 } from 'lucide-react';
+import { CloudDownload, Link as LinkIcon, CheckCircle, Trash2 } from 'lucide-react';
+import type { SyncStatus, SyncWarning } from '@/lib/pco';
+import { NoAccess } from '@/components/NoAccess';
+import { PrivacyControls } from '@/components/PrivacyControls';
+
+const SYNC_STATUS_KEY: Record<SyncStatus, string> = {
+  ok: 'settings.pcoSyncOk',
+  warnings: 'settings.pcoSyncWarnings',
+  failed: 'settings.pcoSyncFailed',
+};
 
 interface User {
   id: string;
@@ -15,10 +24,10 @@ interface User {
 
 interface LastSync {
   source: string;
-  success: boolean;
-  detail: string | null;
-  /** Set when the sync succeeded but skipped households (values kept). */
-  householdsError: string | null;
+  status: SyncStatus;
+  /** English summary; shown only for failures that carry no per-step warning. */
+  summary: string;
+  warnings: SyncWarning[];
   syncedCount: number | null;
   createdAt: string;
 }
@@ -129,7 +138,7 @@ function SettingsContent() {
       setTimeout(() => setSuccess(''), 5000);
     }
     if (searchParams.get('pco_error')) {
-      setError(t('settings.pcoError'));
+      setError(t(searchParams.get('pco_error') === 'state_mismatch' ? 'settings.pcoStateMismatch' : 'settings.pcoError'));
     }
   }, [searchParams, t]);
 
@@ -170,8 +179,15 @@ function SettingsContent() {
     ? t('settings.pcoLastSync')
         .replace('{date}', new Date(lastSync.createdAt).toLocaleString(language))
         .replace('{source}', t('settings.pcoSource.' + lastSync.source))
-        .replace('{status}', lastSync.success ? t('settings.pcoSyncOk') : t('settings.pcoSyncFailed'))
+        .replace('{status}', t(SYNC_STATUS_KEY[lastSync.status]))
     : '';
+
+  /** "People: Planning Center returned HTTP 500", translated, params filled in. */
+  const describeWarning = (w: SyncWarning) => {
+    let reason = t('settings.syncWarn.' + w.code);
+    for (const [k, v] of Object.entries(w.params ?? {})) reason = reason.replace(`{${k}}`, String(v));
+    return `${t('settings.syncStep.' + w.step)}: ${reason}`;
+  };
 
   const updateRole = async (userId: string, newRole: string) => {
     setUpdating(userId);
@@ -218,6 +234,13 @@ function SettingsContent() {
         return;
       }
 
+      // A failed people step updates no member; the reasons appear below
+      // from the refreshed last-sync entry.
+      if (data.status === 'failed') {
+        setError(t('settings.pcoSyncFailedRun'));
+        return;
+      }
+
       setPcoResult(
         t('settings.pcoSyncSuccess')
           .replace('{imported}', String(data.imported))
@@ -244,6 +267,8 @@ function SettingsContent() {
     );
   });
 
+  // Wait for the session: before it loads, the role is unknown, not 'member'.
+  if (status === 'loading') return null;
   if (!isAdmin) {
     return (
       <div>
@@ -251,13 +276,7 @@ function SettingsContent() {
           <h2>{t('settings.title')}</h2>
           <p>{t('settings.sub')}</p>
         </div>
-        <div className="card card-padded">
-          <div className="settings-no-access">
-            <Shield size={48} />
-            <h3>{t('settings.noPermission')}</h3>
-            <p>{t('settings.adminOnly')}</p>
-          </div>
-        </div>
+        <NoAccess />
       </div>
     );
   }
@@ -338,13 +357,31 @@ function SettingsContent() {
             {pcoResult}
           </div>
         )}
-        {/* From the last sync_log row, so a cron sync that skipped households
-            shows here too, and it stays until a sync updates them. */}
-        {lastSync?.householdsError && (
-          <div className="settings-alert settings-alert-warning" role="alert" style={{ marginTop: '16px', marginBottom: 0 }}>
-            {t('settings.pcoHouseholdsNotUpdated').replace('{reason}', lastSync.householdsError)}
+        {/* From the last sync_log row, so cron runs show here too, and the
+            reasons stay until a clean sync replaces them. */}
+        {lastSync && lastSync.status !== 'ok' && (
+          <div
+            className={`settings-alert ${lastSync.status === 'failed' ? 'settings-alert-error' : 'settings-alert-warning'}`}
+            role="alert"
+            style={{ marginTop: '16px', marginBottom: 0, display: 'block' }}
+          >
+            <div>{t(lastSync.status === 'failed' ? 'settings.pcoSyncFailedIntro' : 'settings.pcoSyncWarningsIntro')}</div>
+            <ul style={{ margin: '6px 0 0', paddingLeft: '20px' }}>
+              {lastSync.warnings.length > 0
+                ? lastSync.warnings.map((w, i) => <li key={i}>{describeWarning(w)}</li>)
+                : lastSync.summary && <li>{lastSync.summary}</li>}
+            </ul>
           </div>
         )}
+      </div>
+
+      {/* Directory privacy: the church default layer */}
+      <div className="card card-padded" style={{ marginBottom: '24px' }}>
+        <PrivacyControls
+          scope="church"
+          title={t('privacy.churchTitle')}
+          description={t('privacy.churchDesc')}
+        />
       </div>
 
       {/* User Roles */}

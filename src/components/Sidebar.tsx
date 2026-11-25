@@ -16,6 +16,7 @@ import {
   Heart,
   Settings,
   HandCoins,
+  UserCircle,
   LogOut,
   Menu,
   X,
@@ -91,6 +92,7 @@ export function Sidebar() {
       icon: Calendar,
       label: t('nav.attendance'),
       testId: 'nav-attendance',
+      roles: ['admin', 'house_church_pastor'],
     },
     {
       href: '/prayer',
@@ -99,10 +101,17 @@ export function Sidebar() {
       testId: 'nav-prayer',
     },
     {
+      href: '/profile',
+      icon: UserCircle,
+      label: t('nav.profile'),
+      testId: 'nav-profile',
+    },
+    {
       href: '/settings',
       icon: Settings,
       label: t('nav.settings'),
       testId: 'nav-settings',
+      roles: ['admin'],
     },
   ];
 

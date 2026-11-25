@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { requireViewer } from '@/lib/authz';
 
 const SPANISH_BOOK_MAP: Record<string, string> = {
   'Génesis': 'GEN', 'Genesis': 'GEN',
@@ -56,6 +57,10 @@ function spanishRefToPassageId(ref: string): string | null {
 }
 
 export async function GET(req: NextRequest) {
+  // Signed-in only: this proxies a paid API with the church's key.
+  const { error } = await requireViewer();
+  if (error) return error;
+
   const ref = req.nextUrl.searchParams.get('ref');
   if (!ref) {
     return NextResponse.json({ error: 'Missing ref parameter' }, { status: 400 });
