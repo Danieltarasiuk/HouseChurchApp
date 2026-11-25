@@ -187,7 +187,12 @@ export function EventModal({
       const ev = data.event as CalendarEvent | undefined;
       const syncFailed = ev?.sync_status === 'error';
       if (method === 'DELETE') await onChanged(t('cal.deleted'), 'ok');
-      else await onChanged(syncFailed ? t('cal.savedSyncFailed') : t('cal.saved'), syncFailed ? 'warn' : 'ok');
+      else {
+        // Only leadership events go to Google, and only when the church has a calendar.
+        const pushed = ev?.visibility === 'leaders' && !!church?.hasGoogleCalendar;
+        const message = syncFailed ? t('cal.savedSyncFailed') : pushed ? t('cal.saved') : t('cal.savedLocal');
+        await onChanged(message, syncFailed ? 'warn' : 'ok');
+      }
       if (closeAfter && !syncFailed) onClose();
       else if (ev) setD(draftFromEvent(ev)); // stay open to show the sync error
       return ev ?? null;
