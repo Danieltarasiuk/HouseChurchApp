@@ -14,4 +14,4 @@ Try every migration on the Neon dev branch first: up, down, then up again.
 
 | # | What | Applied to production |
 |---|------|-----------------------|
-| 001 | house churches → groups (table, `group_id`, role `group_leader`, stored values, constraint and index names) | not yet |
+| 001 | house churches → groups (table, `group_id`, role `group_leader`, stored values, constraint and index names) | 2026-11-25 |
