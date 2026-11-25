@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { auth } from '@/lib/auth';
 import { sql } from '@/lib/db';
-import { HOUSEHOLDS_NOT_UPDATED } from '@/lib/pco';
+import { parseSyncDetail } from '@/lib/pco';
 
 export async function GET() {
   const session = await auth();
@@ -27,19 +27,15 @@ export async function GET() {
     }
 
     const row = rows[0];
-    // A sync can succeed while skipping households (cron runs included), so
-    // pull the reason out of the logged detail for the settings page to show.
-    const marker = `${HOUSEHOLDS_NOT_UPDATED}: `;
-    const detail: string = row.detail || '';
-    const householdsError = row.success && detail.includes(marker)
-      ? detail.slice(detail.indexOf(marker) + marker.length)
-      : null;
+    const { summary, warnings } = parseSyncDetail(row.detail);
     return NextResponse.json({
       lastSync: {
         source: row.source,
-        success: row.success,
-        detail: row.detail,
-        householdsError,
+        // 'failed' when the people step failed (or the run crashed);
+        // 'warnings' when it succeeded with some step skipped.
+        status: !row.success ? 'failed' : warnings.length ? 'warnings' : 'ok',
+        summary,
+        warnings,
         syncedCount: row.synced_count,
         createdAt: row.created_at,
       },

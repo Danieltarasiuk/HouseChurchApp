@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { auth } from '@/lib/auth';
-import { getValidPcoToken, runPcoSync, logSync, describeSyncResult, PCO_ERROR_MESSAGES } from '@/lib/pco';
+import { getValidPcoToken, runPcoSync, logSync, encodeSyncDetail, PCO_ERROR_MESSAGES } from '@/lib/pco';
 
 // Geocoding is rate limited to 1 req/sec, so cap the whole request well
 // inside the platform's function timeout and let leftovers roll to the next run.
@@ -31,12 +31,9 @@ export async function POST() {
       geocodeDeadline: Date.now() + GEOCODE_BUDGET_MS,
     });
 
-    await logSync(
-      'manual',
-      true,
-      describeSyncResult(result),
-      result.imported
-    );
+    // A failed people step is a failed run; other step failures are warnings
+    // on a successful one. Either way the per-step reasons go in the detail.
+    await logSync('manual', result.status !== 'failed', encodeSyncDetail(result), result.imported);
 
     return NextResponse.json(result);
   } catch (error) {

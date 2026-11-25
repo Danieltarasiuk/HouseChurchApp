@@ -183,197 +183,290 @@ interface CampusInfo {
   zip: string;
 }
 
-async function fetchCampuses(token: string): Promise<Map<string, CampusInfo>> {
-  const campusMap = new Map<string, CampusInfo>(); // pco_id -> campus info
-  let nextUrl: string | null = 'https://api.planningcenteronline.com/people/v2/campuses?per_page=100';
+// ---------------------------------------------------------------------------
+// Sync warnings
+// ---------------------------------------------------------------------------
+
+/**
+ * A sync step that can fail on its own without failing the others. Check-Ins
+ * is listed so the warning vocabulary covers it, but it is not part of
+ * runPcoSync: the attendance page fetches it on demand.
+ */
+export type SyncStep = 'campuses' | 'people' | 'households' | 'geocoding' | 'checkins';
+
+export type SyncWarningCode =
+  | 'network_error'  // fetch threw (DNS, reset, timeout)       params.detail
+  | 'rate_limited'   // HTTP 429
+  | 'http_error'     // any other non-2xx                       params.status
+  | 'not_json'       // 2xx with a body that isn't JSON
+  | 'malformed'      // JSON, but not the expected JSON:API shape  params.detail
+  | 'empty'          // a well-formed result with nothing in it
+  | 'incomplete'     // fewer records than PCO said exist        params.got, params.expected
+  | 'archive_guard'  // archiving would deactivate too many      params.count, params.active
+  | 'geocode_errors' // geocoder errors (not "no match")         params.count
+  | 'unexpected';    // anything else                           params.detail
+
+export interface SyncWarning {
+  step: SyncStep;
+  code: SyncWarningCode;
+  params?: Record<string, string | number>;
+}
+
+/** English one-liner for logs and the sync_log summary. The UI translates codes instead. */
+export function describeWarning(w: SyncWarning): string {
+  const p = w.params ?? {};
+  const why: Record<SyncWarningCode, string> = {
+    network_error: `network error (${p.detail ?? 'unknown'})`,
+    rate_limited: 'Planning Center rate limit reached (HTTP 429)',
+    http_error: `Planning Center returned HTTP ${p.status}`,
+    not_json: 'malformed response from Planning Center (not JSON)',
+    malformed: `malformed response from Planning Center (${p.detail ?? 'unexpected shape'})`,
+    empty: 'Planning Center returned no records',
+    incomplete: `incomplete response from Planning Center (got ${p.got} of ${p.expected})`,
+    archive_guard: `archiving skipped: it would have deactivated ${p.count} of ${p.active} active synced members`,
+    geocode_errors: `${p.count} address lookups failed with a geocoder error`,
+    unexpected: `unexpected error (${p.detail ?? 'unknown'})`,
+  };
+  return `${w.step}: ${why[w.code]}`;
+}
+
+// ---------------------------------------------------------------------------
+// Paginated JSON:API fetch
+// ---------------------------------------------------------------------------
+
+interface JsonApiResource {
+  id?: string;
+  type?: string;
+  attributes?: Record<string, unknown>;
+  relationships?: Record<string, { data?: unknown } | undefined>;
+}
+
+type PagesResult =
+  | { ok: true; data: JsonApiResource[]; included: JsonApiResource[] }
+  | { ok: false; code: SyncWarningCode; params?: Record<string, string | number> };
+
+/** Hard stop so a looping `links.next` can never spin forever. */
+const MAX_PAGES = 500;
+
+/**
+ * Fetches every page of a PCO list endpoint, all or nothing. Never throws.
+ *
+ * A result is only `ok` when every page arrived as well-formed JSON:API and
+ * the record count matches the `meta.total_count` PCO reported on the first
+ * page, so pagination that stops early (a missing `links.next`) is caught as
+ * `incomplete` rather than trusted as the full list.
+ */
+async function fetchAllPages(token: string, firstUrl: string): Promise<PagesResult> {
+  const data: JsonApiResource[] = [];
+  const included: JsonApiResource[] = [];
+  let expected: number | null = null;
+  let nextUrl: string | null = firstUrl;
+  let pages = 0;
 
   while (nextUrl) {
-    const res: Response = await fetch(nextUrl, {
-      headers: { Authorization: `Bearer ${token}` },
-    });
-    if (!res.ok) break;
-    const data = await res.json();
+    if (++pages > MAX_PAGES) return { ok: false, code: 'malformed', params: { detail: 'too many pages' } };
 
-    for (const campus of data.data || []) {
-      const attrs = campus.attributes;
-      campusMap.set(campus.id, {
-        name: attrs.name,
-        street: ((attrs.street as string) || '').trim(),
-        city: ((attrs.city as string) || '').trim(),
-        state: ((attrs.state as string) || '').trim(),
-        zip: ((attrs.zip as string) || '').trim(),
-      });
+    let res: Response;
+    try {
+      res = await fetch(nextUrl, { headers: { Authorization: `Bearer ${token}` } });
+    } catch (e) {
+      return { ok: false, code: 'network_error', params: { detail: e instanceof Error ? e.message : String(e) } };
     }
-    nextUrl = data.links?.next || null;
+    if (res.status === 429) return { ok: false, code: 'rate_limited' };
+    if (!res.ok) return { ok: false, code: 'http_error', params: { status: res.status } };
+
+    let body;
+    try {
+      body = await res.json();
+    } catch {
+      return { ok: false, code: 'not_json' };
+    }
+    if (!body || !Array.isArray(body.data)) {
+      return { ok: false, code: 'malformed', params: { detail: 'no data list' } };
+    }
+    if (body.included !== undefined && !Array.isArray(body.included)) {
+      return { ok: false, code: 'malformed', params: { detail: 'included is not a list' } };
+    }
+    if (expected === null) {
+      const total = body.meta?.total_count;
+      if (typeof total !== 'number') {
+        return { ok: false, code: 'malformed', params: { detail: 'no total_count' } };
+      }
+      expected = total;
+    }
+
+    data.push(...body.data);
+    if (body.included) included.push(...body.included);
+    nextUrl = typeof body.links?.next === 'string' ? body.links.next : null;
   }
 
-  return campusMap;
+  if (data.length === 0) return { ok: false, code: 'empty' };
+  if (expected !== null && data.length < expected) {
+    return { ok: false, code: 'incomplete', params: { got: data.length, expected } };
+  }
+  return { ok: true, data, included };
 }
+
+const isObject = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null;
+const str = (v: unknown) => (typeof v === 'string' ? v.trim() : '');
+
+type StepResult<T> = { ok: true; value: T } | { ok: false; warning: SyncWarning };
+
+const stepFail = <T>(step: SyncStep, r: Extract<PagesResult, { ok: false }>): StepResult<T> => {
+  const warning: SyncWarning = { step, code: r.code, params: r.params };
+  console.error(`PCO sync: ${describeWarning(warning)}`);
+  return { ok: false, warning };
+};
+
+// ---------------------------------------------------------------------------
+// Campuses
+// ---------------------------------------------------------------------------
+
+export async function fetchCampuses(token: string): Promise<StepResult<Map<string, CampusInfo>>> {
+  const r = await fetchAllPages(token, 'https://api.planningcenteronline.com/people/v2/campuses?per_page=100');
+  if (!r.ok) return stepFail('campuses', r);
+
+  const campusMap = new Map<string, CampusInfo>(); // pco_id -> campus info
+  for (const campus of r.data) {
+    const name = str(campus.attributes?.name);
+    if (!campus.id || !isObject(campus.attributes) || !name) {
+      return stepFail('campuses', { ok: false, code: 'malformed', params: { detail: 'campus without id or name' } });
+    }
+    const a = campus.attributes;
+    campusMap.set(campus.id, { name, street: str(a.street), city: str(a.city), state: str(a.state), zip: str(a.zip) });
+  }
+  return { ok: true, value: campusMap };
+}
+
+// ---------------------------------------------------------------------------
+// Households
+// ---------------------------------------------------------------------------
 
 interface HouseholdInfo {
   householdId: string;
   householdName: string;
 }
 
-/** Prefix of the sync_log / UI message when the household step was skipped. */
-export const HOUSEHOLDS_NOT_UPDATED = 'Households not updated';
-
-type HouseholdsFetch =
-  | { ok: true; map: Map<string, HouseholdInfo> } // person pco_id -> household
-  | { ok: false; reason: string };
-
 /**
  * Maps each PCO person ID to their household. A person in several households
- * keeps the first one seen.
- *
- * All or nothing: any failed, partial or implausible fetch — network error,
- * non-2xx (including a 429 rate limit), a page that isn't the expected
- * JSON:API shape, or no households at all — returns { ok: false, reason } so
- * the sync leaves every member's household values exactly as they were. Only
- * a complete, well-formed fetch is trusted to clear a member's household.
- * Never throws, so a households failure cannot fail the people sync.
+ * keeps the first one seen. All or nothing: on any failure the sync leaves
+ * every member's household values exactly as they were. Only a complete,
+ * well-formed fetch is trusted to clear a member's household.
  */
-async function fetchHouseholds(token: string): Promise<HouseholdsFetch> {
+export async function fetchHouseholds(token: string): Promise<StepResult<Map<string, HouseholdInfo>>> {
+  const r = await fetchAllPages(token, 'https://api.planningcenteronline.com/people/v2/households?per_page=100&include=people');
+  if (!r.ok) return stepFail('households', r);
+
   const householdMap = new Map<string, HouseholdInfo>();
-  let householdCount = 0;
-  let nextUrl: string | null =
-    'https://api.planningcenteronline.com/people/v2/households?per_page=100&include=people';
-
-  const fail = (reason: string): HouseholdsFetch => {
-    console.error(`PCO households fetch failed, household data left unchanged: ${reason}`);
-    return { ok: false, reason };
-  };
-
-  while (nextUrl) {
-    let res: Response;
-    try {
-      res = await fetch(nextUrl, { headers: { Authorization: `Bearer ${token}` } });
-    } catch (e) {
-      return fail(`network error (${e instanceof Error ? e.message : String(e)})`);
+  for (const household of r.data) {
+    const people = household.relationships?.people?.data;
+    if (!household.id || !Array.isArray(people)) {
+      return stepFail('households', { ok: false, code: 'malformed', params: { detail: 'household without a people list' } });
     }
-    if (res.status === 429) return fail('Planning Center rate limit reached (HTTP 429)');
-    if (!res.ok) return fail(`Planning Center returned HTTP ${res.status}`);
-
-    let data;
-    try {
-      data = await res.json();
-    } catch {
-      return fail('malformed response from Planning Center (not JSON)');
+    const name = str(household.attributes?.name);
+    for (const p of people) {
+      const id = isObject(p) ? str(p.id) : '';
+      if (id && !householdMap.has(id)) householdMap.set(id, { householdId: household.id, householdName: name });
     }
-    if (!Array.isArray(data?.data)) {
-      return fail('malformed response from Planning Center (no household list)');
-    }
-
-    for (const household of data.data) {
-      const people = household?.relationships?.people?.data;
-      if (!household?.id || !Array.isArray(people)) {
-        return fail('malformed response from Planning Center (household without a people list)');
-      }
-      householdCount++;
-      const name = ((household.attributes?.name as string) || '').trim();
-      for (const p of people as { id: string }[]) {
-        if (p?.id && !householdMap.has(p.id)) {
-          householdMap.set(p.id, { householdId: household.id, householdName: name });
-        }
-      }
-    }
-    nextUrl = data.links?.next || null;
   }
-
-  // A church with members and zero households is far more likely a bad
-  // response than reality, and trusting it would clear every household.
-  if (householdCount === 0) return fail('Planning Center returned no households');
-
-  return { ok: true, map: householdMap };
+  return { ok: true, value: householdMap };
 }
 
-async function fetchAllPeople(token: string): Promise<{ active: SyncedPerson[]; skippedInactive: number }> {
-  const active: SyncedPerson[] = [];
-  let skippedInactive = 0;
-  // Filter to active profiles only via PCO API
-  let nextUrl: string | null =
-    'https://api.planningcenteronline.com/people/v2/people?per_page=100&include=emails,phone_numbers,addresses&where[status]=active';
+// ---------------------------------------------------------------------------
+// People
+// ---------------------------------------------------------------------------
 
-  while (nextUrl) {
-    const res: Response = await fetch(nextUrl, {
-      headers: { Authorization: `Bearer ${token}` },
-    });
+export async function fetchAllPeople(
+  token: string
+): Promise<StepResult<{ active: SyncedPerson[]; skippedInactive: number }>> {
+  // Active profiles only; meta.total_count is the filtered count.
+  const r = await fetchAllPages(
+    token,
+    'https://api.planningcenteronline.com/people/v2/people?per_page=100&include=emails,phone_numbers,addresses&where[status]=active'
+  );
+  if (!r.ok) return stepFail('people', r);
 
-    if (!res.ok) {
-      throw new Error(`PCO API error: ${res.status}`);
+  // Lookup maps from included resources
+  const emailMap = new Map<string, string>();
+  const phoneMap = new Map<string, string>();
+  const addressMap = new Map<string, { street: string; city: string; state: string; zip: string }>();
+
+  for (const inc of r.included as PcoIncluded[]) {
+    const personId = inc.relationships?.person?.data?.id;
+    if (!personId || !isObject(inc.attributes)) continue;
+
+    if (inc.type === 'Email' && inc.attributes.primary) {
+      emailMap.set(personId, str(inc.attributes.address));
     }
-
-    const data = await res.json();
-
-    // Build lookup maps from included resources
-    const emailMap = new Map<string, string>();
-    const phoneMap = new Map<string, string>();
-    const addressMap = new Map<string, { street: string; city: string; state: string; zip: string }>();
-
-    if (data.included) {
-      for (const inc of data.included as PcoIncluded[]) {
-        const personId = inc.relationships?.person?.data?.id;
-        if (!personId) continue;
-
-        if (inc.type === 'Email' && inc.attributes.primary) {
-          emailMap.set(personId, inc.attributes.address as string);
-        }
-        if (inc.type === 'PhoneNumber' && inc.attributes.primary) {
-          phoneMap.set(personId, inc.attributes.number as string);
-        }
-        if (inc.type === 'Address' && inc.attributes.primary) {
-          const line1 = ((inc.attributes.street_line_1 as string) || '').trim();
-          const line2 = ((inc.attributes.street_line_2 as string) || '').trim();
-          const street = line2 ? `${line1}, ${line2}` : line1;
-          addressMap.set(personId, {
-            street,
-            city: ((inc.attributes.city as string) || '').trim(),
-            state: ((inc.attributes.state as string) || '').trim(),
-            zip: ((inc.attributes.zip as string) || '').trim(),
-          });
-        }
-      }
+    if (inc.type === 'PhoneNumber' && inc.attributes.primary) {
+      phoneMap.set(personId, str(inc.attributes.number));
     }
-
-    for (const person of data.data as PcoPerson[]) {
-      // Secondary check: skip any non-active person that slipped through
-      if (person.attributes.status && person.attributes.status !== 'active') {
-        skippedInactive++;
-        continue;
-      }
-
-      const email = emailMap.get(person.id) || '';
-      const phone = phoneMap.get(person.id) || '';
-      const addr = addressMap.get(person.id);
-      const campusId = person.relationships?.primary_campus?.data?.id || null;
-
-      // Map PCO gender "M"/"F" to "Male"/"Female"
-      const rawGender = person.attributes.gender;
-      const gender = rawGender === 'M' ? 'Male' : rawGender === 'F' ? 'Female' : null;
-
-      active.push({
-        pco_id: person.id,
-        first_name: person.attributes.first_name,
-        last_name: person.attributes.last_name,
-        email: email.toLowerCase().trim(),
-        phone,
-        campus_pco_id: campusId,
-        gender,
-        date_of_birth: person.attributes.birthdate || null,
-        address_street: addr?.street || '',
-        address_city: addr?.city || '',
-        address_state: addr?.state || '',
-        address_zip: addr?.zip || '',
+    if (inc.type === 'Address' && inc.attributes.primary) {
+      const line1 = str(inc.attributes.street_line_1);
+      const line2 = str(inc.attributes.street_line_2);
+      addressMap.set(personId, {
+        street: line2 ? `${line1}, ${line2}` : line1,
+        city: str(inc.attributes.city),
+        state: str(inc.attributes.state),
+        zip: str(inc.attributes.zip),
       });
     }
-
-    nextUrl = data.links?.next || null;
   }
 
-  return { active, skippedInactive };
+  const active: SyncedPerson[] = [];
+  let skippedInactive = 0;
+
+  for (const raw of r.data) {
+    if (!raw.id || !isObject(raw.attributes)) {
+      return stepFail('people', { ok: false, code: 'malformed', params: { detail: 'person without id or attributes' } });
+    }
+    const person = raw as unknown as PcoPerson;
+    // Secondary check: skip any non-active person that slipped through
+    if (person.attributes.status && person.attributes.status !== 'active') {
+      skippedInactive++;
+      continue;
+    }
+
+    const addr = addressMap.get(person.id);
+    const rawGender = person.attributes.gender; // PCO "M"/"F" -> "Male"/"Female"
+
+    active.push({
+      pco_id: person.id,
+      first_name: person.attributes.first_name,
+      last_name: person.attributes.last_name,
+      email: (emailMap.get(person.id) || '').toLowerCase(),
+      phone: phoneMap.get(person.id) || '',
+      campus_pco_id: person.relationships?.primary_campus?.data?.id || null,
+      gender: rawGender === 'M' ? 'Male' : rawGender === 'F' ? 'Female' : null,
+      date_of_birth: person.attributes.birthdate || null,
+      address_street: addr?.street || '',
+      address_city: addr?.city || '',
+      address_state: addr?.state || '',
+      address_zip: addr?.zip || '',
+    });
+  }
+
+  return { ok: true, value: { active, skippedInactive } };
 }
 
+// ---------------------------------------------------------------------------
+// Full sync
+// ---------------------------------------------------------------------------
+
+/**
+ * Archive guard: refuse to archive when a sync would deactivate more than
+ * this fraction of currently active PCO-synced members...
+ */
+export const ARCHIVE_GUARD_MAX_FRACTION = 0.2;
+/** ...and more than this many people (so small, normal churn always goes through). */
+export const ARCHIVE_GUARD_MIN_PEOPLE = 5;
+
+export type SyncStatus = 'ok' | 'warnings' | 'failed';
+
 export interface PcoSyncResult {
+  /** 'failed' when the people step failed; 'warnings' when any other step did. */
+  status: SyncStatus;
+  warnings: SyncWarning[];
   imported: number;
   skipped: number;
   archived: number;
@@ -381,19 +474,51 @@ export interface PcoSyncResult {
   hcGeocoded: number;
   total: number;
   campuses: number;
-  /**
-   * Why the household step was skipped (existing household values were kept),
-   * or null when households synced normally.
-   */
-  householdsError: string | null;
 }
 
-/** One-line sync_log detail, including the households warning if any. */
+/** English summary line for logs. */
 export function describeSyncResult(result: PcoSyncResult): string {
-  const base = `Imported ${result.imported}, archived ${result.archived}, ${result.campuses} campuses`;
-  return result.householdsError
-    ? `${base}. ${HOUSEHOLDS_NOT_UPDATED}: ${result.householdsError}`
+  const base = result.status === 'failed'
+    ? 'Sync failed'
+    : `Imported ${result.imported}, archived ${result.archived}, ${result.campuses} campuses`;
+  return result.warnings.length
+    ? `${base}. ${result.warnings.map(describeWarning).join('; ')}`
     : base;
+}
+
+/**
+ * sync_log.detail payload. JSON in the existing text column, so recording
+ * per-step warnings needs no schema change; rows written before this format
+ * are plain text and are read by parseSyncDetail's legacy branch.
+ */
+interface SyncDetailV1 {
+  v: 1;
+  summary: string;
+  warnings: SyncWarning[];
+}
+
+export function encodeSyncDetail(result: PcoSyncResult): string {
+  const payload: SyncDetailV1 = { v: 1, summary: describeSyncResult(result), warnings: result.warnings };
+  return JSON.stringify(payload);
+}
+
+/** Inverse of encodeSyncDetail, tolerant of legacy plain-text rows. */
+export function parseSyncDetail(detail: string | null): { summary: string; warnings: SyncWarning[] } {
+  if (!detail) return { summary: '', warnings: [] };
+  if (detail.startsWith('{')) {
+    try {
+      const parsed = JSON.parse(detail) as Partial<SyncDetailV1>;
+      if (parsed.v === 1 && Array.isArray(parsed.warnings)) {
+        return { summary: String(parsed.summary ?? ''), warnings: parsed.warnings };
+      }
+    } catch { /* fall through to legacy */ }
+  }
+  // Legacy rows: "Imported N, ... . Households not updated: <reason>"
+  const marker = 'Households not updated: ';
+  const i = detail.indexOf(marker);
+  return i >= 0
+    ? { summary: detail.slice(0, i).replace(/\.\s*$/, ''), warnings: [{ step: 'households', code: 'unexpected', params: { detail: detail.slice(i + marker.length) } }] }
+    : { summary: detail, warnings: [] };
 }
 
 export interface PcoSyncOptions {
@@ -407,149 +532,190 @@ export interface PcoSyncOptions {
 
 /**
  * Full Planning Center sync: campuses → house_churches, active people →
- * members, deactivation of people no longer active in PCO, then geocoding.
+ * members (with households), deactivation of people no longer active in PCO,
+ * then geocoding. Shared by the manual "Sync Members" route and the weekly cron.
  *
- * Shared by the manual "Sync Members" route and the weekly cron.
+ * Every step is independent and all or nothing. A step whose PCO data is
+ * failed, malformed or incomplete changes nothing it owns and adds a warning:
+ *   campuses   → house churches untouched, members keep their house_church_id
+ *   households → members keep their household values
+ *   people     → no member is updated or archived; the run is 'failed'
+ *   archive    → skipped (warning on the people step) if the guard trips
+ * Never throws for PCO problems; database errors still propagate.
  */
 export async function runPcoSync(token: string, opts: PcoSyncOptions = {}): Promise<PcoSyncResult> {
-  // 1. Fetch campuses and active people from PCO
-  const [pcoCampuses, peopleResult, households] = await Promise.all([
+  const warnings: SyncWarning[] = [];
+
+  // 1. Fetch from PCO. None of these throw.
+  const [campusesRes, peopleRes, householdsRes] = await Promise.all([
     fetchCampuses(token),
     fetchAllPeople(token),
     fetchHouseholds(token),
   ]);
-  const { active: people, skippedInactive } = peopleResult;
 
-  // 2. Sync campuses → house_churches
+  // 2. Campuses → house_churches
   const campusToHcId = new Map<string, string>();
+  if (campusesRes.ok) {
+    for (const [pcoId, campusInfo] of campusesRes.value) {
+      const existing = await sql('SELECT id FROM house_churches WHERE pco_campus_id = $1', [pcoId]);
 
-  for (const [pcoId, campusInfo] of pcoCampuses) {
-    const existing = await sql(
-      'SELECT id FROM house_churches WHERE pco_campus_id = $1',
-      [pcoId]
+      if (existing.length > 0) {
+        campusToHcId.set(pcoId, existing[0].id);
+        // Update name and address in case they changed
+        await sql(
+          `UPDATE house_churches SET name = $1, campus_name = $1, is_active = true,
+           address_street = COALESCE(NULLIF($3, ''), address_street),
+           address_city = COALESCE(NULLIF($4, ''), address_city),
+           address_state = COALESCE(NULLIF($5, ''), address_state),
+           address_zip = COALESCE(NULLIF($6, ''), address_zip)
+           WHERE pco_campus_id = $2`,
+          [campusInfo.name, pcoId, campusInfo.street, campusInfo.city, campusInfo.state, campusInfo.zip]
+        );
+      } else {
+        const result = await sql(
+          `INSERT INTO house_churches (name, pco_campus_id, campus_name,
+           address_street, address_city, address_state, address_zip, is_active)
+           VALUES ($1, $2, $1, $3, $4, $5, $6, true) RETURNING id`,
+          [campusInfo.name, pcoId, campusInfo.street || null, campusInfo.city || null, campusInfo.state || null, campusInfo.zip || null]
+        );
+        campusToHcId.set(pcoId, result[0].id);
+      }
+    }
+  } else {
+    warnings.push(campusesRes.warning);
+  }
+  if (!householdsRes.ok) warnings.push(householdsRes.warning);
+
+  let imported = 0;
+  let archived = 0;
+  let skipped = 0;
+  let total = 0;
+
+  if (!peopleRes.ok) {
+    // 3a. People failed: touch no member at all.
+    warnings.push(peopleRes.warning);
+  } else {
+    const { active: people, skippedInactive } = peopleRes.value;
+    skipped = skippedInactive;
+    total = people.length;
+    const syncedPcoIds = people.map((p) => p.pco_id);
+
+    // Measure the archive before writing anything, against the members who
+    // are active right now.
+    const [counts] = await sql(
+      `SELECT COUNT(*)::int AS active,
+              COUNT(*) FILTER (WHERE NOT (pco_id = ANY($1::text[])))::int AS to_archive
+       FROM members WHERE pco_id IS NOT NULL AND is_active = true`,
+      [syncedPcoIds]
     );
+    const activeSynced: number = counts?.active ?? 0;
+    const toArchive: number = counts?.to_archive ?? 0;
+    const archiveBlocked =
+      toArchive > ARCHIVE_GUARD_MIN_PEOPLE && toArchive > activeSynced * ARCHIVE_GUARD_MAX_FRACTION;
 
-    if (existing.length > 0) {
-      campusToHcId.set(pcoId, existing[0].id);
-      // Update name and address in case they changed
-      await sql(
-        `UPDATE house_churches SET name = $1, campus_name = $1, is_active = true,
-         address_street = COALESCE(NULLIF($3, ''), address_street),
-         address_city = COALESCE(NULLIF($4, ''), address_city),
-         address_state = COALESCE(NULLIF($5, ''), address_state),
-         address_zip = COALESCE(NULLIF($6, ''), address_zip)
-         WHERE pco_campus_id = $2`,
-        [campusInfo.name, pcoId, campusInfo.street, campusInfo.city, campusInfo.state, campusInfo.zip]
-      );
-    } else {
+    // 3b. People → members
+    for (const person of people) {
+      const hcId = person.campus_pco_id ? (campusToHcId.get(person.campus_pco_id) || null) : null;
+      const household = householdsRes.ok ? householdsRes.value.get(person.pco_id) : undefined;
+
+      // $16: households fetched fine → overwrite (a person in no household is
+      //      cleared); otherwise keep the member's existing values.
+      // $17: same for house_church_id against the campuses step.
+      // Address: blank PCO values never overwrite. When the resulting address
+      //      differs from the stored one, clear the coordinates so the
+      //      geocoding step looks the new address up.
       const result = await sql(
-        `INSERT INTO house_churches (name, pco_campus_id, campus_name,
-         address_street, address_city, address_state, address_zip, is_active)
-         VALUES ($1, $2, $1, $3, $4, $5, $6, true) RETURNING id`,
-        [campusInfo.name, pcoId, campusInfo.street || null, campusInfo.city || null, campusInfo.state || null, campusInfo.zip || null]
+        `INSERT INTO members (first_name, last_name, email, phone, house_church_id,
+                              gender, date_of_birth,
+                              address_street, address_city, address_state, address_zip,
+                              pco_id, campus_pco_id, pco_household_id, household_name, is_active)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, true)
+         ON CONFLICT (pco_id) DO UPDATE SET
+           first_name = EXCLUDED.first_name,
+           last_name = EXCLUDED.last_name,
+           email = COALESCE(NULLIF(EXCLUDED.email, ''), members.email),
+           phone = COALESCE(NULLIF(EXCLUDED.phone, ''), members.phone),
+           house_church_id = CASE WHEN $17 THEN EXCLUDED.house_church_id ELSE members.house_church_id END,
+           gender = COALESCE(EXCLUDED.gender, members.gender),
+           date_of_birth = COALESCE(EXCLUDED.date_of_birth, members.date_of_birth),
+           address_street = COALESCE(NULLIF(EXCLUDED.address_street, ''), members.address_street),
+           address_city = COALESCE(NULLIF(EXCLUDED.address_city, ''), members.address_city),
+           address_state = COALESCE(NULLIF(EXCLUDED.address_state, ''), members.address_state),
+           address_zip = COALESCE(NULLIF(EXCLUDED.address_zip, ''), members.address_zip),
+           latitude = CASE WHEN ${ADDRESS_CHANGED} THEN NULL ELSE members.latitude END,
+           longitude = CASE WHEN ${ADDRESS_CHANGED} THEN NULL ELSE members.longitude END,
+           campus_pco_id = EXCLUDED.campus_pco_id,
+           pco_household_id = CASE WHEN $16 THEN EXCLUDED.pco_household_id ELSE members.pco_household_id END,
+           household_name = CASE WHEN $16 THEN EXCLUDED.household_name ELSE members.household_name END,
+           is_active = true
+         RETURNING id`,
+        [
+          person.first_name, person.last_name, person.email || null,
+          person.phone || null, hcId,
+          person.gender || null, person.date_of_birth || null,
+          person.address_street || null, person.address_city || null,
+          person.address_state || null, person.address_zip || null,
+          person.pco_id, person.campus_pco_id || null,
+          household?.householdId ?? null, household?.householdName || null,
+          householdsRes.ok,
+          campusesRes.ok,
+        ]
       );
-      campusToHcId.set(pcoId, result[0].id);
+
+      if (result.length > 0) imported++;
+    }
+
+    // 3c. Deactivate PCO-synced members no longer active in PCO. Manually
+    //     added members (pco_id IS NULL) are never touched.
+    if (archiveBlocked) {
+      warnings.push({ step: 'people', code: 'archive_guard', params: { count: toArchive, active: activeSynced } });
+      console.error(`PCO sync: ${describeWarning(warnings[warnings.length - 1])}`);
+    } else if (toArchive > 0) {
+      const archivedResult = await sql(
+        `UPDATE members SET is_active = false
+         WHERE pco_id IS NOT NULL AND is_active = true AND NOT (pco_id = ANY($1::text[]))
+         RETURNING id`,
+        [syncedPcoIds]
+      );
+      archived = archivedResult.length;
     }
   }
 
-  // 3. Sync people → members
-  let imported = 0;
-  const skipped = skippedInactive;
-  let archived = 0;
-  const syncedPcoIds: string[] = [];
-
-  for (const person of people) {
-    syncedPcoIds.push(person.pco_id);
-    // Resolve house church from PCO campus — null if person has no campus
-    const hcId = person.campus_pco_id ? (campusToHcId.get(person.campus_pco_id) || null) : null;
-    // When the households fetch failed, keep each member's existing household
-    // values instead of overwriting with NULL. On success, overwrite plainly:
-    // a person PCO returned who is in no household is cleared, so household
-    // changes and removals still propagate.
-    const householdsOk = households.ok;
-    const household = households.ok ? households.map.get(person.pco_id) : undefined;
-
-    const result = await sql(
-      `INSERT INTO members (first_name, last_name, email, phone, house_church_id,
-                            gender, date_of_birth,
-                            address_street, address_city, address_state, address_zip,
-                            pco_id, campus_pco_id, pco_household_id, household_name, is_active)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, true)
-       ON CONFLICT (pco_id) DO UPDATE SET
-         first_name = EXCLUDED.first_name,
-         last_name = EXCLUDED.last_name,
-         email = COALESCE(NULLIF(EXCLUDED.email, ''), members.email),
-         phone = COALESCE(NULLIF(EXCLUDED.phone, ''), members.phone),
-         house_church_id = EXCLUDED.house_church_id,
-         gender = COALESCE(EXCLUDED.gender, members.gender),
-         date_of_birth = COALESCE(EXCLUDED.date_of_birth, members.date_of_birth),
-         address_street = COALESCE(NULLIF(EXCLUDED.address_street, ''), members.address_street),
-         address_city = COALESCE(NULLIF(EXCLUDED.address_city, ''), members.address_city),
-         address_state = COALESCE(NULLIF(EXCLUDED.address_state, ''), members.address_state),
-         address_zip = COALESCE(NULLIF(EXCLUDED.address_zip, ''), members.address_zip),
-         campus_pco_id = EXCLUDED.campus_pco_id,
-         pco_household_id = CASE WHEN $16 THEN EXCLUDED.pco_household_id ELSE members.pco_household_id END,
-         household_name = CASE WHEN $16 THEN EXCLUDED.household_name ELSE members.household_name END,
-         is_active = true
-       RETURNING id`,
-      [
-        person.first_name, person.last_name, person.email || null,
-        person.phone || null, hcId,
-        person.gender || null, person.date_of_birth || null,
-        person.address_street || null, person.address_city || null,
-        person.address_state || null, person.address_zip || null,
-        person.pco_id, person.campus_pco_id || null,
-        household?.householdId ?? null, household?.householdName || null,
-        householdsOk,
-      ]
-    );
-
-    if (result.length > 0) imported++;
-  }
-
-  // 4. Deactivate members whose PCO ID is no longer in the active results
-  //    (they were removed or marked inactive in PCO)
-  //    Only affects PCO-synced members — manually added members (pco_id IS NULL) are untouched
-  if (syncedPcoIds.length > 0) {
-    const placeholders = syncedPcoIds.map((_, i) => `$${i + 1}`).join(',');
-    const archivedResult = await sql(
-      `UPDATE members SET is_active = false
-       WHERE pco_id IS NOT NULL AND pco_id NOT IN (${placeholders}) AND is_active = true
-       RETURNING id`,
-      syncedPcoIds
-    );
-    archived = archivedResult.length;
-  }
-
-  // 5. Batch geocode house churches that have address but no lat/lng
+  // 4. Geocode house churches, then members (the slow step: Nominatim allows
+  //    1 req/sec, so it runs last against a deadline; leftovers roll over).
   let hcGeocoded = 0;
-  try {
-    hcGeocoded = await geocodeHouseChurchesWithoutCoords({ deadline: opts.geocodeDeadline });
-  } catch (e) {
-    console.error('HC geocoding batch error (non-fatal):', e);
-  }
-
-  // 6. Batch geocode members who have address but no lat/lng.
-  //    Nominatim's 1 req/sec limit makes this the slow step, so it runs last
-  //    and against a deadline — anything left over is retried next sync.
   let geocoded = 0;
+  let geocodeErrors = 0;
   try {
-    geocoded = await geocodeMembersWithoutCoords({ deadline: opts.geocodeDeadline });
+    const hc = await geocodeHouseChurchesWithoutCoords({ deadline: opts.geocodeDeadline });
+    hcGeocoded = hc.geocoded;
+    geocodeErrors += hc.errors;
+    const m = await geocodeMembersWithoutCoords({ deadline: opts.geocodeDeadline });
+    geocoded = m.geocoded;
+    geocodeErrors += m.errors;
+    if (geocodeErrors > 0) warnings.push({ step: 'geocoding', code: 'geocode_errors', params: { count: geocodeErrors } });
   } catch (e) {
     console.error('Geocoding batch error (non-fatal):', e);
+    warnings.push({ step: 'geocoding', code: 'unexpected', params: { detail: e instanceof Error ? e.message : String(e) } });
   }
 
   return {
+    status: !peopleRes.ok ? 'failed' : warnings.length ? 'warnings' : 'ok',
+    warnings,
     imported,
     skipped,
     archived,
     geocoded,
     hcGeocoded,
-    total: people.length,
-    campuses: pcoCampuses.size,
-    householdsError: households.ok ? null : households.reason,
+    total,
+    campuses: campusesRes.ok ? campusesRes.value.size : 0,
   };
 }
+
+/** True when the upsert's resulting address differs from the stored one. */
+const ADDRESS_CHANGED = ['street', 'city', 'state', 'zip']
+  .map((f) => `COALESCE(NULLIF(EXCLUDED.address_${f}, ''), members.address_${f}) IS DISTINCT FROM members.address_${f}`)
+  .join(' OR ');
 
 // ---------------------------------------------------------------------------
 // PCO Check-Ins (kids' Sunday attendance)

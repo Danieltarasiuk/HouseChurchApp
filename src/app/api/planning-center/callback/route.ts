@@ -1,6 +1,8 @@
 import { NextResponse } from 'next/server';
 import { auth } from '@/lib/auth';
 import { sql } from '@/lib/db';
+import { cookies } from 'next/headers';
+import { pcoStateMatches, PCO_STATE_COOKIE } from '@/lib/pcoOAuthState';
 
 export async function GET(request: Request) {
   const session = await auth();
@@ -16,6 +18,17 @@ export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
   const code = searchParams.get('code');
   const error = searchParams.get('error');
+
+  // CSRF: the state must match the one /authorize gave this browser. The
+  // cookie is single-use, so it is cleared whatever the outcome.
+  const cookieStore = await cookies();
+  const storedState = cookieStore.get(PCO_STATE_COOKIE)?.value;
+  cookieStore.delete({ name: PCO_STATE_COOKIE, path: '/api/planning-center/callback' });
+  if (!pcoStateMatches(searchParams.get('state'), storedState)) {
+    const redirectUrl = new URL('/settings', request.url);
+    redirectUrl.searchParams.set('pco_error', 'state_mismatch');
+    return NextResponse.redirect(redirectUrl);
+  }
 
   if (error || !code) {
     const redirectUrl = new URL('/settings', request.url);

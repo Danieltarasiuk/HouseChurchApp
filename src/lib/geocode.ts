@@ -33,7 +33,15 @@ function buildGeocodingAddress(street: string, city: string, state: string, zip:
  * Returns { lat, lng } or null if geocoding fails.
  */
 export async function geocodeAddress(address: string): Promise<{ lat: number; lng: number } | null> {
-  if (!address.trim()) return null;
+  return (await lookupAddress(address)).coords;
+}
+
+/**
+ * Like geocodeAddress, but tells "the geocoder failed" (non-2xx, network,
+ * bad JSON — worth a sync warning) apart from "no match for this address".
+ */
+async function lookupAddress(address: string): Promise<{ coords: { lat: number; lng: number } | null; error: boolean }> {
+  if (!address.trim()) return { coords: null, error: false };
 
   try {
     const url = `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(address)}&format=json&limit=1`;
@@ -42,22 +50,25 @@ export async function geocodeAddress(address: string): Promise<{ lat: number; ln
     });
     if (!res.ok) {
       console.error(`Nominatim ${res.status} for: ${address}`);
-      return null;
+      return { coords: null, error: true };
     }
 
     const data = await res.json();
     if (data[0]) {
-      return {
-        lat: parseFloat(data[0].lat),
-        lng: parseFloat(data[0].lon),
-      };
+      return { coords: { lat: parseFloat(data[0].lat), lng: parseFloat(data[0].lon) }, error: false };
     }
     console.log(`No geocode result for: ${address}`);
-    return null;
+    return { coords: null, error: false };
   } catch (err) {
     console.error(`Geocoding exception for ${address}:`, err);
-    return null;
+    return { coords: null, error: true };
   }
+}
+
+export interface GeocodeBatchResult {
+  geocoded: number;
+  /** Lookups that failed with a geocoder error (not "no match"). */
+  errors: number;
 }
 
 export interface GeocodeBatchOptions {
@@ -73,7 +84,7 @@ export interface GeocodeBatchOptions {
  * Respects Nominatim's 1 request/second rate limit.
  * Called after PCO sync upsert completes.
  */
-export async function geocodeMembersWithoutCoords(opts: GeocodeBatchOptions = {}): Promise<number> {
+export async function geocodeMembersWithoutCoords(opts: GeocodeBatchOptions = {}): Promise<GeocodeBatchResult> {
   // Find members with address but no coords
   const rows = await sql(
     `SELECT id, address_street, address_city, address_state, address_zip
@@ -86,6 +97,7 @@ export async function geocodeMembersWithoutCoords(opts: GeocodeBatchOptions = {}
   );
 
   let geocoded = 0;
+  let errors = 0;
 
   for (const row of rows) {
     if (opts.deadline && Date.now() >= opts.deadline) break;
@@ -99,7 +111,8 @@ export async function geocodeMembersWithoutCoords(opts: GeocodeBatchOptions = {}
 
     if (!address) continue;
 
-    const coords = await geocodeAddress(address);
+    const { coords, error } = await lookupAddress(address);
+    if (error) errors++;
     if (coords) {
       await sql(
         'UPDATE members SET latitude = $1, longitude = $2 WHERE id = $3',
@@ -112,7 +125,7 @@ export async function geocodeMembersWithoutCoords(opts: GeocodeBatchOptions = {}
     await new Promise(r => setTimeout(r, 1100));
   }
 
-  return geocoded;
+  return { geocoded, errors };
 }
 
 /**
@@ -143,7 +156,7 @@ export function geocodeHouseChurchAsync(hcId: string, street: string, city: stri
  * Respects Nominatim's 1 request/second rate limit.
  * Called after PCO sync campus upsert completes.
  */
-export async function geocodeHouseChurchesWithoutCoords(opts: GeocodeBatchOptions = {}): Promise<number> {
+export async function geocodeHouseChurchesWithoutCoords(opts: GeocodeBatchOptions = {}): Promise<GeocodeBatchResult> {
   const rows = await sql(
     `SELECT id, address_street, address_city, address_state, address_zip
      FROM house_churches
@@ -155,6 +168,7 @@ export async function geocodeHouseChurchesWithoutCoords(opts: GeocodeBatchOption
   );
 
   let geocoded = 0;
+  let errors = 0;
 
   for (const row of rows) {
     if (opts.deadline && Date.now() >= opts.deadline) break;
@@ -168,7 +182,8 @@ export async function geocodeHouseChurchesWithoutCoords(opts: GeocodeBatchOption
 
     if (!address) continue;
 
-    const coords = await geocodeAddress(address);
+    const { coords, error } = await lookupAddress(address);
+    if (error) errors++;
     if (coords) {
       await sql(
         'UPDATE house_churches SET latitude = $1, longitude = $2 WHERE id = $3',
@@ -181,5 +196,5 @@ export async function geocodeHouseChurchesWithoutCoords(opts: GeocodeBatchOption
     await new Promise(r => setTimeout(r, 1100));
   }
 
-  return geocoded;
+  return { geocoded, errors };
 }

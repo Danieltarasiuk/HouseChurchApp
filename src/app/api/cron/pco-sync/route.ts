@@ -5,7 +5,7 @@ import {
   getValidPcoToken,
   runPcoSync,
   logSync,
-  describeSyncResult,
+  encodeSyncDetail,
   PCO_ERROR_MESSAGES,
 } from '@/lib/pco';
 
@@ -59,15 +59,14 @@ export async function GET(request: Request) {
       geocodeDeadline: Date.now() + GEOCODE_BUDGET_MS,
     });
 
-    await logSync(
-      'cron',
-      true,
-      describeSyncResult(result),
-      result.imported
-    );
+    // A failed people step is a failed run; other step failures are warnings
+    // on a successful one. Either way the per-step reasons go in the detail.
+    await logSync('cron', result.status !== 'failed', encodeSyncDetail(result), result.imported);
 
+    // 200 even when the people step failed: retrying immediately would not
+    // help, and the failure is recorded in sync_log for the settings page.
     return NextResponse.json({
-      success: true,
+      success: result.status !== 'failed',
       synced: result.imported,
       timestamp: new Date().toISOString(),
       ...result,
