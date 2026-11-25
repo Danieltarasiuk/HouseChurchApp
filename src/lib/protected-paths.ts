@@ -27,6 +27,7 @@ export const PROTECTED_PATHS = [
   '/prayer',
   '/pastoral',
   '/calendar',
+  '/events',
   '/settings',
   '/profile',
   '/pending',
