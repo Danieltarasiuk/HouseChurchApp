@@ -1,5 +1,6 @@
 import { sql } from '@/lib/db';
 import { geocodeMembersWithoutCoords, geocodeHouseChurchesWithoutCoords } from '@/lib/geocode';
+import { isoDateInChurchTz } from '@/lib/churchTime';
 
 export type PcoErrorReason =
   | 'not_connected'
@@ -734,9 +735,7 @@ export class PcoCheckInsError extends Error {
 const normalizeName = (s: string) =>
   s.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().trim();
 
-const CHURCH_TZ = 'America/New_York';
-const localDate = (iso: string) =>
-  new Date(iso).toLocaleDateString('en-CA', { timeZone: CHURCH_TZ }); // YYYY-MM-DD
+const localDate = (iso: string) => isoDateInChurchTz(new Date(iso)); // YYYY-MM-DD, church local
 
 async function pcoGet(token: string, url: string) {
   let res: Response;

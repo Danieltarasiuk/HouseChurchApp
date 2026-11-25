@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { useSession } from 'next-auth/react';
 import { useLang } from '@/context/LangContext';
 import { NoAccess } from '@/components/NoAccess';
+import { todayInChurchTz } from '@/lib/churchTime';
 import { PASTORAL_TOPICS } from '@/data/pastoral-topics';
 import ScriptureModal from '@/components/ScriptureModal';
 import { X, Lock, ChevronDown, ChevronRight, Pencil, Trash2 } from 'lucide-react';
@@ -155,7 +156,7 @@ export default function PastoralPage() {
   // Meeting form
   const [showMeetingForm, setShowMeetingForm] = useState(false);
   const [meetingTopic, setMeetingTopic] = useState('');
-  const [meetingDate, setMeetingDate] = useState(new Date().toISOString().split('T')[0]);
+  const [meetingDate, setMeetingDate] = useState(todayInChurchTz);
   const [meetingNotes, setMeetingNotes] = useState('');
   const [savingMeeting, setSavingMeeting] = useState(false);
 
@@ -268,7 +269,7 @@ export default function PastoralPage() {
         setShowMeetingForm(false);
         setMeetingTopic('');
         setMeetingNotes('');
-        setMeetingDate(new Date().toISOString().split('T')[0]);
+        setMeetingDate(todayInChurchTz());
         loadMembers(hcFilter || undefined);
       }
     } finally { setSavingMeeting(false); }

@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import bcryptjs from 'bcryptjs';
 import { sql } from '@/lib/db';
+import { linkOrCreateMember } from '@/lib/memberLink';
 
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
@@ -60,6 +61,9 @@ export async function POST(request: Request) {
         { status: 409 }
       );
     }
+
+    // Same as a first Google sign-in: link this email's member, or create one.
+    await linkOrCreateMember(result[0].id, email, name.trim());
 
     return NextResponse.json({ success: true });
   } catch (error) {

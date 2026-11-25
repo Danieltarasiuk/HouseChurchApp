@@ -4,6 +4,7 @@ import { useState, useEffect, useRef } from 'react';
 import { useSession } from 'next-auth/react';
 import { useLang } from '@/context/LangContext';
 import { NoAccess } from '@/components/NoAccess';
+import { todayInChurchTz } from '@/lib/churchTime';
 
 interface Member {
   id: string;
@@ -218,7 +219,7 @@ export default function AttendancePage() {
   const { data: authSession } = useSession();
   const userRole = (authSession?.user as { role?: string })?.role;
 
-  const today = new Date().toISOString().split('T')[0];
+  const today = todayInChurchTz(); // not toISOString(): that is already tomorrow on Sunday evenings
   const [tab, setTab] = useState<'record' | 'view'>('record');
   const [eventType, setEventType] = useState('sunday_service');
   const [date, setDate] = useState(today);
