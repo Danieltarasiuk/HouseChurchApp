@@ -43,6 +43,8 @@ interface SessionRow {
   house_church_name: string | null;
   recorded_by_name: string | null;
   present_count: number;
+  adult_count?: number;
+  kid_count?: number;
 }
 
 type GroupMode = 'household' | 'house_church' | 'alpha' | 'rate_desc' | 'rate_asc';
@@ -550,8 +552,42 @@ export default function AttendancePage() {
   const heldDates = columns.filter(d => sessionSet.has(d));
 
   const presentOn = (memberId: string, d: string) => presentSet.has(`${memberId}|${d}`);
-  const countForDate = (d: string) =>
-    sessionSet.has(d) ? viewMembers.filter(m => presentOn(m.id, d)).length : null;
+
+  // Per-date adult/kid split for the column headers. Counts the full view
+  // scope, not the minors-filtered list, so the totals don't change with
+  // the Show Minors toggle. Kid = under 18 on that session's date; no
+  // birthday on file counts as adult.
+  const scopeMembers = allMembers.filter(m =>
+    viewType === 'house_church' ? m.house_church_id === viewHcId : true
+  );
+  const isKidOn = (m: Member, d: string) => {
+    if (!m.date_of_birth) return false;
+    const birth = new Date(m.date_of_birth.split('T')[0] + 'T00:00:00');
+    if (isNaN(birth.getTime())) return false;
+    const ref = new Date(d + 'T00:00:00');
+    let age = ref.getFullYear() - birth.getFullYear();
+    const mm = ref.getMonth() - birth.getMonth();
+    if (mm < 0 || (mm === 0 && ref.getDate() < birth.getDate())) age--;
+    return age >= 0 && age < 18;
+  };
+  const splitForDate = (d: string) => {
+    if (!sessionSet.has(d)) return null;
+    let adults = 0, kids = 0;
+    for (const m of scopeMembers) {
+      if (!presentOn(m.id, d)) continue;
+      if (isKidOn(m, d)) kids++; else adults++;
+    }
+    return { adults, kids };
+  };
+  const heldSplits = heldDates
+    .map(d => splitForDate(d))
+    .filter((x): x is { adults: number; kids: number } => x !== null);
+  const avgHeader = heldSplits.length > 0
+    ? {
+        adults: heldSplits.reduce((sum, x) => sum + x.adults, 0) / heldSplits.length,
+        kids: heldSplits.reduce((sum, x) => sum + x.kids, 0) / heldSplits.length,
+      }
+    : null;
 
   const rateParts = (memberId: string): Rate => ({
     attended: heldDates.filter(d => presentOn(memberId, d)).length,
@@ -584,6 +620,68 @@ export default function AttendancePage() {
   const dayMonth = (d: string) => {
     const [, mm, dd] = d.split('-');
     return `${dd}/${mm}`;
+  };
+
+  // Rolling average per service over the sessions in the selected range
+  const avgAdults = sessions.length > 0
+    ? (sessions.reduce((sum, s) => sum + (s.adult_count ?? 0), 0) / sessions.length).toFixed(1)
+    : '0';
+  const avgKids = sessions.length > 0
+    ? (sessions.reduce((sum, s) => sum + (s.kid_count ?? 0), 0) / sessions.length).toFixed(1)
+    : '0';
+
+  /**
+   * One-click toggle of a single mark in the View grid. Optimistic: the
+   * grid and the Recorded Sessions counts update immediately and revert
+   * if the save fails. Reuses the roster POST with a one-member payload —
+   * present inserts the row, absent deletes it; the session row exists.
+   */
+  const toggleViewMark = async (memberId: string, d: string) => {
+    if (!history || !sessionSet.has(d)) return;
+    const was = presentOn(memberId, d);
+    const hcId = viewType === 'house_church' ? viewHcId || null : null;
+
+    const applyLocal = (present: boolean) => {
+      setHistory(h => h && ({
+        ...h,
+        records: present
+          ? [...h.records, { member_id: memberId, date: d }]
+          : h.records.filter(r => !(r.member_id === memberId && r.date === d)),
+      }));
+      const m = allMembers.find(mm => mm.id === memberId);
+      const kid = m ? isKidOn(m, d) : false;
+      const delta = present ? 1 : -1;
+      setSessions(prev => prev.map(sess => {
+        if (sess.date !== d || sess.attendance_type !== viewType) return sess;
+        if (viewType === 'house_church' && sess.house_church_id !== hcId) return sess;
+        return {
+          ...sess,
+          present_count: sess.present_count + delta,
+          adult_count: (sess.adult_count ?? 0) + (kid ? 0 : delta),
+          kid_count: (sess.kid_count ?? 0) + (kid ? delta : 0),
+        };
+      }));
+    };
+
+    applyLocal(!was);
+    try {
+      const res = await fetch('/api/attendance', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          date: d,
+          attendance_type: viewType,
+          house_church_id: hcId,
+          records: [{ member_id: memberId, present: !was }],
+        }),
+      });
+      if (!res.ok) throw new Error();
+      // Saved attendance changes the rates the Record tab sorts by
+      setRateCache({});
+    } catch {
+      applyLocal(was);
+      alert(t('att.toggleError'));
+    }
   };
 
   const canDeleteSession = (s: SessionRow) =>
@@ -952,13 +1050,37 @@ export default function AttendancePage() {
                     <thead>
                       <tr>
                         <th className="att-name-col">{t('common.name')}</th>
-                        {columns.map(d => (
-                          <th key={d}>
-                            {dayMonth(d)}
-                            <span className="att-date-count">{countForDate(d) ?? ''}</span>
-                          </th>
-                        ))}
-                        <th>{t('att.rate')}</th>
+                        {columns.map(d => {
+                          const split = splitForDate(d);
+                          return (
+                            <th key={d}>
+                              {dayMonth(d)}
+                              {split && (
+                                <span className="att-date-count" style={{ display: 'block', fontWeight: 400 }}>
+                                  {split.adults}{t('att.adultAbbr')} {split.kids}{t('att.kidAbbr')}
+                                </span>
+                              )}
+                              <span className="att-date-count" style={{ display: 'block' }}>
+                                {split ? `${split.adults + split.kids} ${t('att.total')}` : ''}
+                              </span>
+                            </th>
+                          );
+                        })}
+                        <th title={avgHeader ? t('att.avgSplit')
+                          .replace('{a}', avgHeader.adults.toFixed(1))
+                          .replace('{k}', avgHeader.kids.toFixed(1)) : undefined}>
+                          {t('att.rate')}
+                          {avgHeader && (
+                            <>
+                              <span className="att-date-count" style={{ display: 'block', fontWeight: 400 }}>
+                                {avgHeader.adults.toFixed(1)}{t('att.adultAbbr')} {avgHeader.kids.toFixed(1)}{t('att.kidAbbr')}
+                              </span>
+                              <span className="att-date-count" style={{ display: 'block' }}>
+                                {(avgHeader.adults + avgHeader.kids).toFixed(1)} {t('att.total')}
+                              </span>
+                            </>
+                          )}
+                        </th>
                       </tr>
                     </thead>
                     <tbody>
@@ -981,7 +1103,15 @@ export default function AttendancePage() {
                               const present = presentOn(m.id, d);
                               return (
                                 <td key={d}>
-                                  <span className={`att-mark ${present ? 'att-mark-present' : 'att-mark-absent'}`}>
+                                  <span
+                                    className={`att-mark ${present ? 'att-mark-present' : 'att-mark-absent'}`}
+                                    role="button"
+                                    tabIndex={0}
+                                    title={t('att.clickToggle')}
+                                    style={{ cursor: 'pointer' }}
+                                    onClick={() => toggleViewMark(m.id, d)}
+                                    onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggleViewMark(m.id, d); } }}
+                                  >
                                     {present ? '✓' : '✗'}
                                   </span>
                                 </td>
@@ -1011,10 +1141,19 @@ export default function AttendancePage() {
                           </div>
                           <div className="att-mobile-dots">
                             {columns.map(d => {
-                              const cls = !sessionSet.has(d)
+                              const held = sessionSet.has(d);
+                              const cls = !held
                                 ? 'att-dot-none'
                                 : presentOn(m.id, d) ? 'att-dot-present' : 'att-dot-absent';
-                              return <span key={d} className={`att-dot ${cls}`} title={dayMonth(d)} />;
+                              return (
+                                <span
+                                  key={d}
+                                  className={`att-dot ${cls}`}
+                                  title={dayMonth(d)}
+                                  style={held ? { cursor: 'pointer' } : undefined}
+                                  onClick={held ? () => toggleViewMark(m.id, d) : undefined}
+                                />
+                              );
                             })}
                           </div>
                         </div>
@@ -1028,8 +1167,11 @@ export default function AttendancePage() {
 
           {!(viewType === 'house_church' && !viewHcId) && !viewLoading && sessions.length > 0 && (
             <div className="card" style={{ marginTop: '16px' }}>
-              <div className="card-header">
+              <div className="card-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '8px' }}>
                 <h3 className="card-title">{t('att.sessions')}</h3>
+                <span style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>
+                  {t('att.avgSplit').replace('{a}', avgAdults).replace('{k}', avgKids)}
+                </span>
               </div>
               <div style={{ padding: '8px 16px' }}>
                 {sessions.map(s => (
@@ -1047,6 +1189,8 @@ export default function AttendancePage() {
                         : s.house_church_name || t('att.houseChurch')}
                       <span style={noteStyle}>
                         {t('att.present')}: {s.present_count}
+                        {s.adult_count != null && s.kid_count != null &&
+                          ` (${s.adult_count} ${t('att.adultsShort')} / ${s.kid_count} ${t('att.kidsShort')})`}
                         {s.recorded_by_name && ` · ${t('att.recordedBy')} ${s.recorded_by_name}`}
                       </span>
                     </span>

@@ -4,7 +4,7 @@ import { Suspense, useState, useEffect, useCallback } from 'react';
 import { useSession } from 'next-auth/react';
 import { useSearchParams } from 'next/navigation';
 import { useLang } from '@/context/LangContext';
-import { Shield, CloudDownload, Link as LinkIcon, CheckCircle } from 'lucide-react';
+import { Shield, CloudDownload, Link as LinkIcon, CheckCircle, Trash2 } from 'lucide-react';
 
 interface User {
   id: string;
@@ -58,6 +58,7 @@ function SettingsContent() {
   const [updating, setUpdating] = useState<string | null>(null);
   const [success, setSuccess] = useState('');
   const [search, setSearch] = useState('');
+  const [removing, setRemoving] = useState<string | null>(null);
 
   // Planning Center state
   const [pcoConnected, setPcoConnected] = useState(false);
@@ -94,6 +95,31 @@ function SettingsContent() {
       setLoading(false);
     }
   }, [status, isAdmin, fetchUsers]);
+
+  const removeUser = async (user: User) => {
+    if (!window.confirm(t('settings.removeConfirm').replace('{name}', user.name || user.email))) return;
+    setRemoving(user.id);
+    setError('');
+    setSuccess('');
+    try {
+      const res = await fetch('/api/settings/users', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userId: user.id }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setError(data.error || t('settings.removeError'));
+        return;
+      }
+      setUsers(prev => prev.filter(u => u.id !== user.id));
+      setSuccess(t('settings.removedUser').replace('{name}', user.name || user.email));
+    } catch {
+      setError(t('settings.removeError'));
+    } finally {
+      setRemoving(null);
+    }
+  };
 
   // Check for PCO callback params
   useEffect(() => {
@@ -284,6 +310,12 @@ function SettingsContent() {
                   <CloudDownload size={14} />
                   {pcoImporting ? t('settings.pcoSyncing') : t('settings.pcoSync')}
                 </button>
+                {/* Re-run OAuth even while connected — needed when the app
+                    gains a scope (e.g. check_ins) the stored token lacks. */}
+                <a href="/api/planning-center/authorize" className="btn btn-ghost" style={{ textDecoration: 'none' }}>
+                  <LinkIcon size={14} />
+                  {t('settings.pcoReconnect')}
+                </a>
               </>
             ) : (
               <a href="/api/planning-center/authorize" className="btn btn-primary" style={{ textDecoration: 'none' }}>
@@ -345,12 +377,13 @@ function SettingsContent() {
                   <th>{t('auth.email')}</th>
                   <th>{t('settings.currentRole')}</th>
                   <th>{t('settings.changeRole')}</th>
+                  <th>{t('settings.remove')}</th>
                 </tr>
               </thead>
               <tbody>
                 {filtered.length === 0 ? (
                   <tr>
-                    <td colSpan={4} style={{ textAlign: 'center', color: 'var(--text-tertiary)', padding: '24px' }}>
+                    <td colSpan={5} style={{ textAlign: 'center', color: 'var(--text-tertiary)', padding: '24px' }}>
                       {t('common.noResults')}
                     </td>
                   </tr>
@@ -388,6 +421,22 @@ function SettingsContent() {
                                 </option>
                               ))}
                             </select>
+                          )}
+                        </td>
+                        <td>
+                          {isSelf ? (
+                            <span style={{ fontSize: '13px', color: 'var(--text-tertiary)' }}>—</span>
+                          ) : (
+                            <button
+                              className="btn btn-ghost"
+                              onClick={() => removeUser(user)}
+                              disabled={removing === user.id}
+                              aria-label={t('settings.removeUser')}
+                              title={t('settings.removeUser')}
+                              style={{ color: '#dc2626' }}
+                            >
+                              <Trash2 size={15} />
+                            </button>
                           )}
                         </td>
                       </tr>

@@ -11,14 +11,17 @@ import {
   BookOpen,
   Sprout,
   Calendar,
+  CalendarDays,
   HeartHandshake,
   Heart,
   Settings,
+  HandCoins,
   LogOut,
   Menu,
   X,
 } from 'lucide-react';
 import { useLang } from '@/context/LangContext';
+import { GiveLink } from '@/components/GiveLink';
 
 export function Sidebar() {
   const pathname = usePathname();
@@ -74,6 +77,13 @@ export function Sidebar() {
       icon: HeartHandshake,
       label: t('nav.pastoral'),
       testId: 'nav-pastoral',
+      roles: ['admin', 'house_church_pastor'],
+    },
+    {
+      href: '/calendar',
+      icon: CalendarDays,
+      label: t('nav.calendar'),
+      testId: 'nav-calendar',
       roles: ['admin', 'house_church_pastor'],
     },
     {
@@ -167,6 +177,14 @@ export function Sidebar() {
               </Link>
             );
           })}
+          <GiveLink
+            className="nav-item"
+            testId="nav-give"
+            onClick={() => setMobileOpen(false)}
+          >
+            <HandCoins size={20} />
+            <span>{t('nav.give')}</span>
+          </GiveLink>
         </nav>
 
         <div className="sidebar-footer">
