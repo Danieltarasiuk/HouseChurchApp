@@ -120,7 +120,7 @@ export function EventModal({
   onDuplicate: (copy: EventDraft) => void;
   onChanged: (message: string | null, kind: 'ok' | 'warn') => Promise<void>;
 }) {
-  const { language, t } = useLang();
+  const { language, t, label } = useLang();
   const [d, setD] = useState<EventDraft>(initial);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -241,7 +241,7 @@ export function EventModal({
               <select id="cal-category" className="form-select" value={d.category} onChange={(e) => set('category', e.target.value as CalendarCategory)}>
                 {CALENDAR_CATEGORY_KEYS.map((k) => (
                   <option key={k} value={k}>
-                    {language === 'es' ? CALENDAR_CATEGORIES[k].es : CALENDAR_CATEGORIES[k].en}
+                    {label(language === 'es' ? CALENDAR_CATEGORIES[k].es : CALENDAR_CATEGORIES[k].en)}
                   </option>
                 ))}
               </select>
@@ -324,7 +324,7 @@ export function EventModal({
 
 /** Read-only details for pastors: title, when, category. No notes, no sync state. */
 export function EventDetails({ event, onClose }: { event: CalendarEvent; onClose: () => void }) {
-  const { language, t } = useLang();
+  const { language, t, label } = useLang();
   const cat = CALENDAR_CATEGORIES[event.category as CalendarCategory];
   const title = language === 'es' ? event.title_es || event.title_en : event.title_en;
   return (
@@ -346,7 +346,7 @@ export function EventDetails({ event, onClose }: { event: CalendarEvent; onClose
             <span className="cal-detail-label">{t('cal.category')}</span>
             <span className="cal-cat-pill" style={{ '--chip': cat?.color } as React.CSSProperties}>
               <span className="cal-chip-dot" />
-              {cat ? (language === 'es' ? cat.es : cat.en) : event.category}
+              {cat ? label(language === 'es' ? cat.es : cat.en) : event.category}
             </span>
           </div>
         </div>

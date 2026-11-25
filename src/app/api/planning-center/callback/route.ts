@@ -1,20 +1,15 @@
 import { NextResponse } from 'next/server';
-import { auth } from '@/lib/auth';
-import { sql } from '@/lib/db';
+import { sql, currentChurchId } from '@/lib/db';
+import { requireViewer } from '@/lib/authz';
 import { cookies } from 'next/headers';
 import { pcoStateMatches, PCO_STATE_COOKIE } from '@/lib/pcoOAuthState';
 import { parseTokenResponse } from '@/lib/pco';
+import { inChurch } from '@/lib/churchRoute';
 
-export async function GET(request: Request) {
-  const session = await auth();
-  if (!session?.user) {
-    return NextResponse.redirect(new URL('/login', request.url));
-  }
-
-  const userRole = (session.user as { role?: string }).role;
-  if (userRole !== 'admin') {
-    return NextResponse.redirect(new URL('/settings', request.url));
-  }
+async function handleGET(request: Request) {
+  // Admins of the current church only; the token is stored for that church.
+  const { viewer, error: authError } = await requireViewer({ roles: ['admin'] });
+  if (authError) return NextResponse.redirect(new URL('/settings', request.url));
 
   const { searchParams } = new URL(request.url);
   const code = searchParams.get('code');
@@ -75,11 +70,11 @@ export async function GET(request: Request) {
 
     // Store the token, expiring when PCO says it does
     await sql(
-      `INSERT INTO pco_tokens (user_id, access_token, refresh_token, expires_at)
-       VALUES ($1, $2, $3, NOW() + make_interval(secs => $4))
-       ON CONFLICT (user_id) DO UPDATE
+      `INSERT INTO pco_tokens (church_id, user_id, access_token, refresh_token, expires_at)
+       VALUES ($5, $1, $2, $3, NOW() + make_interval(secs => $4))
+       ON CONFLICT (church_id, user_id) DO UPDATE
        SET access_token = $2, refresh_token = $3, expires_at = NOW() + make_interval(secs => $4)`,
-      [session.user.id, parsed.accessToken, parsed.refreshToken, parsed.expiresIn]
+      [viewer.userId, parsed.accessToken, parsed.refreshToken, parsed.expiresIn, currentChurchId()]
     );
 
     const redirectUrl = new URL('/settings', request.url);
@@ -92,3 +87,5 @@ export async function GET(request: Request) {
     return NextResponse.redirect(redirectUrl);
   }
 }
+
+export const GET = inChurch(handleGET);

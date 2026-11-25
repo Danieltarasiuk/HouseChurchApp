@@ -1,23 +1,13 @@
 import { describe, it, expect, beforeAll, beforeEach, afterEach, vi } from 'vitest';
-import { current, setupTestDb, mockedSql, mockedWithTransaction } from './helpers/db';
+import { current, setupTestDb, cookieJar } from './helpers/db';
 import { seedChurch, U } from './helpers/fixtures';
 
-vi.mock('@/lib/db', () => ({
-  sql: (text: string, params?: unknown[]) => mockedSql(text, params),
-  withTransaction: <T>(fn: (q: typeof mockedSql) => Promise<T>) => mockedWithTransaction(fn),
-}));
+vi.mock('@/lib/dbDriver', async () => (await import('./helpers/db')).testDriver);
+vi.mock('next/headers', async () => (await import('./helpers/db')).headersMock);
 
 let sessionUser: { id: string; role: string } | null = null;
 vi.mock('@/lib/auth', () => ({ auth: async () => (sessionUser ? { user: sessionUser } : null) }));
 
-// next/headers cookie store for the OAuth callback.
-const cookieJar = new Map<string, string>();
-vi.mock('next/headers', () => ({
-  cookies: async () => ({
-    get: (name: string) => (cookieJar.has(name) ? { name, value: cookieJar.get(name)! } : undefined),
-    delete: (opts: { name: string } | string) => cookieJar.delete(typeof opts === 'string' ? opts : opts.name),
-  }),
-}));
 
 const sql = (text: string, params?: unknown[]) => current.db!.sql(text, params);
 

@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { requireViewer } from '@/lib/authz';
-import { sql } from '@/lib/db';
+import { sql, currentChurchId } from '@/lib/db';
 import { isDayComplete, requiredAnswerKeys } from '@/lib/discipleshipProgress';
+import { inChurch } from '@/lib/churchRoute';
 
 const MAX_ANSWER_LENGTH = 10_000;
 
@@ -12,7 +13,7 @@ function parseWeekDay(week: unknown, day: unknown): { week: number; day: number 
   return { week: w, day: d };
 }
 
-export async function GET(req: NextRequest) {
+async function handleGET(req: NextRequest) {
   const { viewer, error } = await requireViewer();
   if (error) return error;
 
@@ -42,7 +43,7 @@ export async function GET(req: NextRequest) {
  * completed_at is when it was first finished, and is cleared if an answer
  * is later emptied.
  */
-export async function POST(req: NextRequest) {
+async function handlePOST(req: NextRequest) {
   const { viewer, error } = await requireViewer();
   if (error) return error;
 
@@ -68,16 +69,16 @@ export async function POST(req: NextRequest) {
 
   try {
     const rows = await sql(
-      `INSERT INTO discipleship_progress (user_id, week, day, answers, completed, completed_at)
-       VALUES ($1, $2, $3, $4, $5, CASE WHEN $5 THEN now() ELSE NULL END)
-       ON CONFLICT (user_id, week, day)
+      `INSERT INTO discipleship_progress (church_id, user_id, week, day, answers, completed, completed_at)
+       VALUES ($6, $1, $2, $3, $4, $5, CASE WHEN $5 THEN now() ELSE NULL END)
+       ON CONFLICT (church_id, user_id, week, day)
        DO UPDATE SET answers = EXCLUDED.answers,
                      completed = EXCLUDED.completed,
                      completed_at = CASE WHEN EXCLUDED.completed
                                          THEN COALESCE(discipleship_progress.completed_at, now())
                                          ELSE NULL END
        RETURNING completed, completed_at`,
-      [viewer.userId, wd.week, wd.day, JSON.stringify(answers), completed]
+      [viewer.userId, wd.week, wd.day, JSON.stringify(answers), completed, currentChurchId()]
     );
     return NextResponse.json({ success: true, completed: rows[0].completed, completedAt: rows[0].completed_at });
   } catch (err) {
@@ -85,3 +86,6 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Failed to save answers' }, { status: 500 });
   }
 }
+
+export const GET = inChurch(handleGET);
+export const POST = inChurch(handlePOST);

@@ -1,12 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { auth } from '@/lib/auth';
+import { requireViewer } from '@/lib/authz';
 import { sql } from '@/lib/db';
+import { inChurch } from '@/lib/churchRoute';
 
-export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
-  const session = await auth();
-  if (!session?.user?.id) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-  }
+async function handlePATCH(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  const { viewer, error: authError } = await requireViewer();
+  if (authError) return authError;
 
   const { id } = await params;
 
@@ -19,7 +18,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     if (existing.length === 0) {
       return NextResponse.json({ error: 'Not found' }, { status: 404 });
     }
-    if (existing[0].pastor_id !== session.user.id) {
+    if (existing[0].pastor_id !== viewer.userId) {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
     }
 
@@ -40,11 +39,9 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
   }
 }
 
-export async function DELETE(_req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
-  const session = await auth();
-  if (!session?.user?.id) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-  }
+async function handleDELETE(_req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  const { viewer, error: authError } = await requireViewer();
+  if (authError) return authError;
 
   const { id } = await params;
 
@@ -57,7 +54,7 @@ export async function DELETE(_req: NextRequest, { params }: { params: Promise<{ 
     if (existing.length === 0) {
       return NextResponse.json({ error: 'Not found' }, { status: 404 });
     }
-    if (existing[0].pastor_id !== session.user.id) {
+    if (existing[0].pastor_id !== viewer.userId) {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
     }
 
@@ -68,3 +65,6 @@ export async function DELETE(_req: NextRequest, { params }: { params: Promise<{ 
     return NextResponse.json({ error: 'Failed to delete note' }, { status: 500 });
   }
 }
+
+export const PATCH = inChurch(handlePATCH);
+export const DELETE = inChurch(handleDELETE);

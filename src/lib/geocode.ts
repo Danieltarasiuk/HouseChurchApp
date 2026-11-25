@@ -1,4 +1,4 @@
-import { sql } from '@/lib/db';
+import { sql, withChurch, currentChurchId } from '@/lib/db';
 
 /**
  * Strip apartment/unit/suite suffixes from a street address.
@@ -136,15 +136,18 @@ export async function geocodeMembersWithoutCoords(opts: GeocodeBatchOptions = {}
 export function geocodeGroupAsync(groupId: string, street: string, city: string, state: string, zip: string): void {
   const address = buildGeocodingAddress(street, city, state, zip);
   if (!address) return;
+  // The request's transaction is over by the time the lookup returns, so the
+  // update gets a transaction of its own in the same church.
+  const churchId = currentChurchId();
 
   // Fire and forget — don't await
   geocodeAddress(address)
     .then(async (coords) => {
       if (coords) {
-        await sql(
+        await withChurch(churchId, () => sql(
           'UPDATE groups SET latitude = $1, longitude = $2 WHERE id = $3',
           [coords.lat, coords.lng, groupId]
-        );
+        ), { separate: true });
       }
     })
     .catch((err) => {

@@ -1,15 +1,14 @@
 import { NextResponse } from 'next/server';
-import { auth } from '@/lib/auth';
+import { requireViewer } from '@/lib/authz';
 import { sql } from '@/lib/db';
 import { parseSyncDetail } from '@/lib/pco';
+import { inChurch } from '@/lib/churchRoute';
 
-export async function GET() {
-  const session = await auth();
-  if (!session?.user) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-  }
+async function handleGET() {
+  const { viewer, error: authError } = await requireViewer();
+  if (authError) return authError;
 
-  const userRole = (session.user as { role?: string }).role;
+  const userRole = viewer.role;
   if (userRole !== 'admin') {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
   }
@@ -45,3 +44,5 @@ export async function GET() {
     return NextResponse.json({ lastSync: null });
   }
 }
+
+export const GET = inChurch(handleGET);

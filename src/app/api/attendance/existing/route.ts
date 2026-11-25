@@ -1,8 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { sql } from '@/lib/db';
 import { requireViewer, forbidden, leadsGroup, leaderGroupScope, LEADER_ROLES } from '@/lib/authz';
+import { inChurch } from '@/lib/churchRoute';
 
-export async function GET(req: NextRequest) {
+async function handleGET(req: NextRequest) {
   const { viewer, error } = await requireViewer({ roles: LEADER_ROLES });
   if (error) return error;
   // null = all groups (admin); a pastor gets exactly their own.
@@ -36,3 +37,5 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: 'Failed to load existing attendance' }, { status: 500 });
   }
 }
+
+export const GET = inChurch(handleGET);

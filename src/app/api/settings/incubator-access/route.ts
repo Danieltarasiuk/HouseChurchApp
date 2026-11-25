@@ -1,17 +1,19 @@
 import { NextResponse } from 'next/server';
-import { sql } from '@/lib/db';
+import { sql, currentChurchId } from '@/lib/db';
 import { requireViewer } from '@/lib/authz';
+import { inChurch } from '@/lib/churchRoute';
 
 /**
  * Grant or revoke Pastor Incubator access for a user (admins only).
  *
  *   PUT { userId, active: boolean }
  *
- * Uses the existing incubator_access row (one per user): a grant sets it
- * active and records who granted it and when; a revoke keeps the row,
- * inactive. Admins always have access, so they need no row.
+ * Uses the existing incubator_access row (one per user, per church): a grant
+ * sets it active and records who granted it and when; a revoke keeps the
+ * row, inactive. Admins always have access, so they need no row. The user
+ * must be an active member of this church.
  */
-export async function PUT(request: Request) {
+async function handlePUT(request: Request) {
   const { viewer, error } = await requireViewer({ roles: ['admin'] });
   if (error) return error;
 
@@ -26,18 +28,23 @@ export async function PUT(request: Request) {
     return NextResponse.json({ error: 'Give userId and active (true/false)' }, { status: 400 });
   }
 
-  const user = await sql("SELECT id FROM users WHERE id::text = $1 AND status = 'active'", [userId]);
+  const user = await sql(
+    "SELECT user_id FROM church_memberships WHERE user_id::text = $1 AND church_id = $2 AND status = 'active'",
+    [userId, currentChurchId()]
+  );
   if (user.length === 0) return NextResponse.json({ error: 'User not found' }, { status: 404 });
 
   if (body.active) {
     await sql(
-      `INSERT INTO incubator_access (user_id, granted_by, granted_at, is_active)
-       VALUES ($1, $2, now(), true)
-       ON CONFLICT (user_id) DO UPDATE SET is_active = true, granted_by = $2, granted_at = now()`,
-      [userId, viewer.userId]
+      `INSERT INTO incubator_access (church_id, user_id, granted_by, granted_at, is_active)
+       VALUES ($3, $1, $2, now(), true)
+       ON CONFLICT (church_id, user_id) DO UPDATE SET is_active = true, granted_by = $2, granted_at = now()`,
+      [userId, viewer.userId, currentChurchId()]
     );
   } else {
     await sql('UPDATE incubator_access SET is_active = false WHERE user_id = $1', [userId]);
   }
   return NextResponse.json({ success: true, active: body.active });
 }
+
+export const PUT = inChurch(handlePUT);

@@ -2,10 +2,11 @@ import { NextResponse } from 'next/server';
 import { sql } from '@/lib/db';
 import { requireViewer } from '@/lib/authz';
 import { canSeePrayer } from '@/lib/prayerVisibility';
+import { inChurch } from '@/lib/churchRoute';
 
 const RECENT_PRAYERS = 5;
 
-export async function GET() {
+async function handleGET() {
   const { viewer, error } = await requireViewer();
   if (error) return error;
 
@@ -40,3 +41,5 @@ export async function GET() {
     return NextResponse.json({ error: 'Failed to load dashboard data' }, { status: 500 });
   }
 }
+
+export const GET = inChurch(handleGET);

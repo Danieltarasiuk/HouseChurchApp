@@ -14,6 +14,21 @@ const config = [
     settings: { react: { version: '19.2' } },
   },
   {
+    // Multi-church: church data is reached only inside withChurch() (row-level
+    // security). The no-church escape hatch, systemSql, is for the system
+    // functions in src/lib/system.ts alone, and the raw driver for db.ts.
+    files: ['src/**/*.{ts,tsx}'],
+    ignores: ['src/lib/system.ts', 'src/lib/db.ts'],
+    rules: {
+      'no-restricted-imports': ['error', {
+        paths: [
+          { name: '@/lib/db', importNames: ['systemSql'], message: 'Queries with no church belong in src/lib/system.ts.' },
+          { name: '@/lib/dbDriver', message: 'Use sql / withChurch from @/lib/db.' },
+        ],
+      }],
+    },
+  },
+  {
     // Test plumbing wraps untyped driver results.
     files: ['tests/**'],
     rules: { '@typescript-eslint/no-explicit-any': 'off' },

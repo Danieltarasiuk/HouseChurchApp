@@ -1,12 +1,10 @@
 import { describe, it, expect, beforeAll, beforeEach, afterEach, vi } from 'vitest';
 import { NextRequest } from 'next/server';
-import { current, setupTestDb, mockedSql, mockedWithTransaction } from './helpers/db';
-import { seedChurch, U, M, GROUP, ROLE_OF } from './helpers/fixtures';
+import { current, setupTestDb } from './helpers/db';
+import { seedChurch, U, M, GROUP, ROLE_OF, CHURCH } from './helpers/fixtures';
 
-vi.mock('@/lib/db', () => ({
-  sql: (text: string, params?: unknown[]) => mockedSql(text, params),
-  withTransaction: <T>(fn: (q: typeof mockedSql) => Promise<T>) => mockedWithTransaction(fn),
-}));
+vi.mock('@/lib/dbDriver', async () => (await import('./helpers/db')).testDriver);
+vi.mock('next/headers', async () => (await import('./helpers/db')).headersMock);
 
 // The signed-in user for the next request; null = signed out.
 let sessionUser: { id: string; role: string } | null = null;
@@ -53,11 +51,11 @@ describe('signed-out requests', () => {
 
 describe('dashboard recent prayers', () => {
   beforeEach(async () => {
-    await sql(`INSERT INTO prayer_requests (title, user_id, visibility, group_id) VALUES
-      ('public one', $1, 'public', $2),
-      ('A group only', $1, 'group', $2),
-      ('A private', $1, 'private', $2),
-      ('B group only', $3, 'group', $4)`, [U.memberA1, GROUP.A, U.memberB1, GROUP.B]);
+    await sql(`INSERT INTO prayer_requests (church_id, title, user_id, visibility, group_id) VALUES
+      ($5, 'public one', $1, 'public', $2),
+      ($5, 'A group only', $1, 'group', $2),
+      ($5, 'A private', $1, 'private', $2),
+      ($5, 'B group only', $3, 'group', $4)`, [U.memberA1, GROUP.A, U.memberB1, GROUP.B, CHURCH.city]);
   });
   const titles = async () => {
     const { GET } = await import('@/app/api/dashboard/route');
@@ -108,8 +106,10 @@ async function directory(): Promise<Record<string, Record<string, unknown>>> {
   return Object.fromEntries(members.map((m: Record<string, unknown>) => [m.id, m]));
 }
 
+/** A CityChurch directory setting (the church layer's scope_id is the church). */
 const setLayer = (scope: string, scopeId: string | null, field: string, level: string) =>
-  sql(`INSERT INTO directory_visibility (scope, scope_id, field, level) VALUES ($1, $2, $3, $4)`, [scope, scopeId, field, level]);
+  sql(`INSERT INTO directory_visibility (church_id, scope, scope_id, field, level) VALUES ($5, $1, $2, $3, $4)`,
+    [scope, scope === 'church' ? CHURCH.city : scopeId, field, level, CHURCH.city]);
 
 const sees = (row: Record<string, unknown>, field: string) => FIELD_KEYS[field].every((k) => k in row);
 const seesNone = (row: Record<string, unknown>, field: string) => FIELD_KEYS[field].every((k) => !(k in row));
@@ -118,7 +118,7 @@ describe('directory visibility', () => {
   it('names and group are always visible; with no settings every field is leaders-only', async () => {
     as('memberA1');
     const d = await directory();
-    expect(Object.keys(d)).toHaveLength(9);
+    expect(Object.keys(d)).toHaveLength(10); // CityChurch's 10 members, none of Test Church's
     for (const id of [M.A2, M.B1, M.N]) {
       expect(d[id]).toMatchObject({ first_name: expect.any(String), group_id: expect.anything() === undefined ? null : d[id].group_id });
       for (const f of Object.keys(FIELD_KEYS)) expect(seesNone(d[id], f)).toBe(true);
@@ -299,9 +299,9 @@ describe('directory visibility settings API', () => {
     as('admin');
     await put({ scope: 'church', field: 'phone', level: 'church' });
     await put({ scope: 'church', field: 'phone', level: 'group' });
-    expect(await sql(`SELECT level FROM directory_visibility`)).toEqual([{ level: 'group' }]);
+    expect(await sql(`SELECT level FROM directory_visibility WHERE church_id = $1`, [CHURCH.city])).toEqual([{ level: 'group' }]);
     await put({ scope: 'church', field: 'phone', level: null });
-    expect(await sql(`SELECT * FROM directory_visibility`)).toEqual([]);
+    expect(await sql(`SELECT * FROM directory_visibility WHERE church_id = $1`, [CHURCH.city])).toEqual([]);
   });
 });
 
@@ -342,7 +342,7 @@ describe('attendance', () => {
   it('a rejected write changes nothing', async () => {
     as('pastorA');
     await groupAttendance(GROUP.B, [M.B1]);
-    expect(await sql('SELECT * FROM attendance')).toEqual([]);
+    expect(await sql('SELECT * FROM attendance WHERE church_id = $1', [CHURCH.city])).toEqual([]);
   });
 
   describe('reads', () => {
@@ -461,7 +461,7 @@ describe('pastoral/members', () => {
   });
   it('admins get everyone, and can filter', async () => {
     as('admin');
-    expect(await ids()).toHaveLength(9);
+    expect(await ids()).toHaveLength(10); // CityChurch's 10 members
     expect(await ids(`?group_id=${GROUP.B}`)).toEqual([M.pastorB, M.B1, M.B2].sort());
   });
   it('members are refused', async () => {
@@ -474,8 +474,8 @@ describe('prayer requests', () => {
   let aPrayer: string;
   let bPrayer: string;
   beforeEach(async () => {
-    [{ id: aPrayer }] = await sql(`INSERT INTO prayer_requests (title, user_id, visibility, group_id) VALUES ('a', $1, 'group', $2) RETURNING id`, [U.memberA1, GROUP.A]) as { id: string }[];
-    [{ id: bPrayer }] = await sql(`INSERT INTO prayer_requests (title, user_id, visibility, group_id) VALUES ('b', $1, 'group', $2) RETURNING id`, [U.memberB1, GROUP.B]) as { id: string }[];
+    [{ id: aPrayer }] = await sql(`INSERT INTO prayer_requests (church_id, title, user_id, visibility, group_id) VALUES ($3, 'a', $1, 'group', $2) RETURNING id`, [U.memberA1, GROUP.A, CHURCH.city]) as { id: string }[];
+    [{ id: bPrayer }] = await sql(`INSERT INTO prayer_requests (church_id, title, user_id, visibility, group_id) VALUES ($3, 'b', $1, 'group', $2) RETURNING id`, [U.memberB1, GROUP.B, CHURCH.city]) as { id: string }[];
   });
 
   it.each([

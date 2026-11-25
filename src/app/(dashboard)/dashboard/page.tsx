@@ -5,7 +5,7 @@ import { HandCoins } from 'lucide-react';
 import { useLang } from '@/context/LangContext';
 import { formatDate } from '@/lib/formatDate';
 import { GiveLink } from '@/components/GiveLink';
-import { GIVING_URL } from '@/lib/giving';
+import { useChurch } from '@/context/ChurchContext';
 
 interface DashboardData {
   groupCount: number;
@@ -16,6 +16,7 @@ interface DashboardData {
 
 export default function DashboardPage() {
   const { t, language } = useLang();
+  const givingUrl = useChurch().church?.givingUrl;
   const [data, setData] = useState<DashboardData | null>(null);
   const [error, setError] = useState(false);
 
@@ -76,7 +77,7 @@ export default function DashboardPage() {
         </div>
       </div>
 
-      {GIVING_URL && (
+      {givingUrl && (
         <div className="card give-card" style={{ marginBottom: 24 }}>
           <div className="card-body give-card-body">
             <div>

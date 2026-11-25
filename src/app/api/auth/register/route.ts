@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import bcryptjs from 'bcryptjs';
-import { sql } from '@/lib/db';
+import { systemCreatePendingAccount } from '@/lib/system';
+import { resolveSignupChurch } from '@/lib/currentChurch';
 
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
@@ -49,14 +50,18 @@ export async function POST(request: Request) {
     // Hash password and insert — use ON CONFLICT to handle race condition
     const passwordHash = await bcryptjs.hash(password, 12);
 
-    const result = await sql(
-      // 'pending': nothing proves this person owns the email, so the account
-      // is never linked to a member by it. An admin approves and links it.
-      "INSERT INTO users (name, email, password_hash, status) VALUES ($1, $2, $3, 'pending') ON CONFLICT (email) DO NOTHING RETURNING id",
-      [name.trim(), email.toLowerCase().trim(), passwordHash]
-    );
+    // The church being signed up to (PR 1.2: from the subdomain).
+    const churchId = await resolveSignupChurch();
+    if (!churchId) {
+      return NextResponse.json({ error: 'Registration failed. Please try again.', reason: 'registration_failed' }, { status: 500 });
+    }
 
-    if (result.length === 0) {
+    // 'pending': nothing proves this person owns the email, so the account
+    // is never linked to a member by it. An admin of that church approves
+    // and links it.
+    const userId = await systemCreatePendingAccount(name.trim(), email.toLowerCase().trim(), passwordHash, churchId);
+
+    if (!userId) {
       return NextResponse.json(
         { error: 'An account with this email already exists', reason: 'email_exists' },
         { status: 409 }

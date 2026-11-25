@@ -5,7 +5,8 @@ import { useSession } from 'next-auth/react';
 import { useLang } from '@/context/LangContext';
 import { formatDate, formatNumericMonthDay } from '@/lib/formatDate';
 import { NoAccess } from '@/components/NoAccess';
-import { todayInChurchTz } from '@/lib/churchTime';
+import { todayInChurchTz, DEFAULT_TIME_ZONE } from '@/lib/churchTime';
+import { useChurch } from '@/context/ChurchContext';
 
 interface Member {
   id: string;
@@ -228,7 +229,8 @@ export default function AttendancePage() {
   const { data: authSession } = useSession();
   const userRole = (authSession?.user as { role?: string })?.role;
 
-  const today = todayInChurchTz(); // not toISOString(): that is already tomorrow on Sunday evenings
+  const { church } = useChurch();
+  const today = todayInChurchTz(church?.timezone ?? DEFAULT_TIME_ZONE); // not toISOString(): that is already tomorrow on Sunday evenings
   const [tab, setTab] = useState<'record' | 'view'>('record');
   const [eventType, setEventType] = useState('sunday_service');
   const [date, setDate] = useState(today);

@@ -1,14 +1,13 @@
 import { NextResponse } from 'next/server';
-import { auth } from '@/lib/auth';
+import { requireViewer } from '@/lib/authz';
 import { sql } from '@/lib/db';
+import { inChurch } from '@/lib/churchRoute';
 
-export async function GET() {
-  const session = await auth();
-  if (!session?.user?.id) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-  }
+async function handleGET() {
+  const { viewer, error: authError } = await requireViewer();
+  if (authError) return authError;
 
-  const userRole = (session.user as { role?: string }).role;
+  const userRole = viewer.role;
   if (userRole !== 'admin' && userRole !== 'group_leader') {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
   }
@@ -30,7 +29,7 @@ export async function GET() {
         `SELECT hc.id FROM groups hc
          JOIN members m ON hc.pastor_id = m.id
          WHERE m.user_id = $1`,
-        [session.user.id]
+        [viewer.userId]
       );
       const groupIds = myGroupIds.map((r: Record<string, string>) => r.id);
 
@@ -40,7 +39,7 @@ export async function GET() {
            FROM member_flags
            WHERE flag_color = 'red' AND is_resolved = false AND created_by = $1
            GROUP BY member_id`,
-          [session.user.id]
+          [viewer.userId]
         );
       } else {
         const placeholders = groupIds.map((_: string, i: number) => `$${i + 2}`).join(',');
@@ -51,7 +50,7 @@ export async function GET() {
            WHERE mf.flag_color = 'red' AND mf.is_resolved = false
              AND (mf.created_by = $1 OR mem.group_id IN (${placeholders}))
            GROUP BY mf.member_id`,
-          [session.user.id, ...groupIds]
+          [viewer.userId, ...groupIds]
         );
       }
     }
@@ -62,3 +61,5 @@ export async function GET() {
     return NextResponse.json({ error: 'Failed to load flag summary' }, { status: 500 });
   }
 }
+
+export const GET = inChurch(handleGET);

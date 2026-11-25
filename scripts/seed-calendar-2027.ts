@@ -1,10 +1,14 @@
 /**
- * Seed the 2027 leadership calendar and link each row to the event that
- * already exists in the CityChurch Miami Google Calendar.
+ * Seed the 2027 leadership calendar of one church and link each row to the
+ * event that already exists in that church's Google Calendar
+ * (churches.google_calendar_id).
  *
- *   npm run seed:calendar              # insert + link
- *   npm run seed:calendar -- --dry-run # report only, writes nothing
+ *   npm run seed:calendar                          # CityChurch: insert + link
+ *   npm run seed:calendar -- --church=<slug>       # another church
+ *   npm run seed:calendar -- --dry-run             # report only, writes nothing
  *
+ * Every statement runs in a transaction that sets app.church_id first, so it
+ * works under row-level security with the app's database role.
  * - Idempotent: aborts if any calendar_events row already falls in 2027.
  * - Linking: a row links to a Google event with the same start date
  *   (start.date, or the date part of start.dateTime) and EXACTLY the same
@@ -33,15 +37,23 @@ interface SeedRow {
 
 async function main() {
   const dryRun = process.argv.includes('--dry-run');
+  const slug = process.argv.find((a) => a.startsWith('--church='))?.slice('--church='.length) ?? 'citychurch';
 
   // Imported after env is loaded.
   const { neon } = await import('@neondatabase/serverless');
   const { isCalendarCategory } = await import('../src/lib/calendarCategories');
   const { isISODate } = await import('../src/lib/calendarDates');
-  const { getCalendarClient, getCalendarId, CALENDAR_TIME_ZONE } = await import('../src/lib/googleCalendarSync');
+  const { getCalendarClient } = await import('../src/lib/googleCalendarSync');
 
   if (!process.env.DATABASE_URL) throw new Error('DATABASE_URL is not set');
   const sql = neon(process.env.DATABASE_URL);
+
+  const churches = await sql`SELECT id, name, timezone, google_calendar_id FROM churches WHERE slug = ${slug}`;
+  if (churches.length === 0) throw new Error(`No church with slug "${slug}"`);
+  const church = churches[0] as { id: string; name: string; timezone: string; google_calendar_id: string | null };
+  if (!church.google_calendar_id) throw new Error(`${church.name} has no Google Calendar configured`);
+  console.log(`church: ${church.name}`);
+  const inChurch = sql`SELECT set_config('app.church_id', ${church.id}, true)`;
 
   const rows: SeedRow[] = JSON.parse(
     readFileSync(path.join(process.cwd(), 'db/seed/calendar_2027.json'), 'utf8')
@@ -53,9 +65,9 @@ async function main() {
   }
 
   // --- Idempotency guard -------------------------------------------------
-  const existing = await sql`
+  const [, existing] = await sql.transaction([inChurch, sql`
     SELECT count(*)::int AS n FROM calendar_events
-    WHERE start_date <= '2027-12-31' AND end_date >= '2027-01-01'`;
+    WHERE start_date <= '2027-12-31' AND end_date >= '2027-01-01'`]);
   if (existing[0].n > 0) {
     const msg = `calendar_events already has ${existing[0].n} row(s) in 2027 — refusing to seed again.`;
     if (!dryRun) {
@@ -65,13 +77,16 @@ async function main() {
     console.warn(`WARNING: ${msg} (continuing because this is a dry run)`);
   }
 
-  const admins = await sql`SELECT id, name FROM users WHERE role = 'admin' ORDER BY created_at, id LIMIT 1`;
+  const admins = await sql`
+    SELECT u.id, u.name FROM church_memberships cm JOIN users u ON u.id = cm.user_id
+    WHERE cm.church_id = ${church.id} AND cm.role = 'admin' AND cm.status = 'active'
+    ORDER BY u.created_at, u.id LIMIT 1`;
   if (admins.length === 0) throw new Error('No admin user found for created_by');
   const createdBy = admins[0].id as string;
 
   // --- Read every 2027 Google event --------------------------------------
   const calendar = getCalendarClient();
-  const calendarId = getCalendarId();
+  const calendarId = church.google_calendar_id;
   type G = { id: string; date: string; summary: string };
   const googleEvents: G[] = [];
   let pageToken: string | undefined;
@@ -80,7 +95,7 @@ async function main() {
       calendarId,
       timeMin: '2027-01-01T00:00:00-05:00',
       timeMax: '2028-01-01T00:00:00-05:00',
-      timeZone: CALENDAR_TIME_ZONE,
+      timeZone: church.timezone,
       singleEvents: true,
       showDeleted: false,
       maxResults: 2500,
@@ -108,16 +123,17 @@ async function main() {
 
   // --- Write ---------------------------------------------------------------
   if (!dryRun) {
-    await sql.transaction(
-      plan.map(({ row: r, googleId }) => sql`
+    await sql.transaction([
+      inChurch,
+      ...plan.map(({ row: r, googleId }) => sql`
         INSERT INTO calendar_events
-          (title_en, title_es, category, start_date, end_date, start_time, end_time,
+          (church_id, title_en, title_es, category, start_date, end_date, start_time, end_time,
            notes, status, google_event_id, sync_status, created_by)
         VALUES
-          (${r.title_en}, ${r.title_es}, ${r.category}, ${r.start_date}, ${r.end_date},
+          (${church.id}, ${r.title_en}, ${r.title_es}, ${r.category}, ${r.start_date}, ${r.end_date},
            ${r.start_time}, ${r.end_time}, ${r.notes}, ${r.status}, ${googleId},
-           ${googleId ? 'synced' : 'pending'}, ${createdBy})`)
-    );
+           ${googleId ? 'synced' : 'pending'}, ${createdBy})`),
+    ]);
   }
 
   // --- Report --------------------------------------------------------------

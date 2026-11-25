@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { sql } from '@/lib/db';
 import { requireViewer, forbidden, leadsMemberIn, memberGroups, LEADER_ROLES } from '@/lib/authz';
+import { inChurch } from '@/lib/churchRoute';
 
 const MAX_NOTE_LENGTH = 120;
 
@@ -8,7 +9,7 @@ const MAX_NOTE_LENGTH = 120;
  * Sets a member's attendance note (e.g. "bass player"). The note is owned by
  * this app — the PCO sync never writes or clears it.
  */
-export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+async function handlePATCH(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const { viewer, error } = await requireViewer({ roles: LEADER_ROLES });
   if (error) return error;
 
@@ -53,3 +54,5 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     return NextResponse.json({ error: 'Failed to save note' }, { status: 500 });
   }
 }
+
+export const PATCH = inChurch(handlePATCH);

@@ -1161,3 +1161,19 @@ tr:hover td {
   .privacy-controls select { max-width: none !important; }
   .privacy-controls td.col-hide-mobile { display: none; }
 }
+
+/* Church switcher (sidebar; only for users with more than one church) */
+.church-switcher { padding: 0 16px 12px; display: flex; flex-direction: column; gap: 4px; }
+.church-switcher label { font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em; color: var(--text-tertiary); }
+.church-switcher select { width: 100%; min-width: 0; }
+.church-switcher-error { font-size: 12px; color: var(--danger); }
+
+/* Settings → Church */
+.church-settings-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px 20px; }
+.church-settings-grid > :last-child { grid-column: 1 / -1; }
+.church-settings-labels { grid-column: 1 / -1; border: 1px solid var(--border, #e5e7eb); border-radius: 8px; padding: 12px 16px;
+  display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px 20px; }
+.church-settings-labels legend { font-size: 13px; font-weight: 600; padding: 0 6px; }
+@media (max-width: 768px) {
+  .church-settings-grid, .church-settings-labels { grid-template-columns: minmax(0, 1fr); }
+}

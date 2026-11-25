@@ -1,8 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { sql } from '@/lib/db';
+import { sql, currentChurchId } from '@/lib/db';
 import { requireViewer, forbidden, leadsMemberIn, memberGroups, LEADER_ROLES } from '@/lib/authz';
+import { inChurch } from '@/lib/churchRoute';
 
-export async function GET(req: NextRequest) {
+async function handleGET(req: NextRequest) {
   const { viewer, error } = await requireViewer({ roles: LEADER_ROLES });
   if (error) return error;
 
@@ -42,7 +43,7 @@ export async function GET(req: NextRequest) {
   }
 }
 
-export async function POST(req: NextRequest) {
+async function handlePOST(req: NextRequest) {
   const { viewer, error } = await requireViewer({ roles: LEADER_ROLES });
   if (error) return error;
 
@@ -61,10 +62,10 @@ export async function POST(req: NextRequest) {
     if (!hcs.has(String(member_id)) || !leadsMemberIn(viewer, hcs.get(String(member_id)))) return forbidden();
 
     const result = await sql(
-      `INSERT INTO member_flags (member_id, created_by, flag_color, description)
-       VALUES ($1, $2, $3, $4)
+      `INSERT INTO member_flags (church_id, member_id, created_by, flag_color, description)
+       VALUES ($5, $1, $2, $3, $4)
        RETURNING id, member_id, flag_color, description, created_at, created_by`,
-      [member_id, viewer.userId, flag_color, description.trim()]
+      [member_id, viewer.userId, flag_color, description.trim(), currentChurchId()]
     );
 
     const me = await sql('SELECT name FROM users WHERE id = $1', [viewer.userId]);
@@ -74,3 +75,6 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Failed to create flag' }, { status: 500 });
   }
 }
+
+export const GET = inChurch(handleGET);
+export const POST = inChurch(handlePOST);

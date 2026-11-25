@@ -1,15 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { auth } from '@/lib/auth';
+import { requireViewer } from '@/lib/authz';
 import { sql } from '@/lib/db';
+import { inChurch } from '@/lib/churchRoute';
 
-export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
-  const session = await auth();
-  if (!session?.user?.id) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-  }
+async function handlePATCH(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  const { viewer, error: authError } = await requireViewer();
+  if (authError) return authError;
 
   const { id } = await params;
-  const userRole = (session.user as { role?: string }).role;
+  const userRole = viewer.role;
 
   try {
     const existing = await sql(
@@ -21,7 +20,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     }
 
     // Only creator or admin can resolve
-    if (existing[0].created_by !== session.user.id && userRole !== 'admin') {
+    if (existing[0].created_by !== viewer.userId && userRole !== 'admin') {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
     }
 
@@ -41,3 +40,5 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     return NextResponse.json({ error: 'Failed to resolve flag' }, { status: 500 });
   }
 }
+
+export const PATCH = inChurch(handlePATCH);

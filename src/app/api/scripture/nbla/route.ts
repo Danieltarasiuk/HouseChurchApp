@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { requireViewer } from '@/lib/authz';
+import { inChurch } from '@/lib/churchRoute';
 import { spanishBookToUsfm } from '@/lib/spanishBooks';
 
 function spanishRefToPassageId(ref: string): string | null {
@@ -19,7 +20,7 @@ function spanishRefToPassageId(ref: string): string | null {
   return `${usfm}.${chapter}.${verseStart}`;
 }
 
-export async function GET(req: NextRequest) {
+async function handleGET(req: NextRequest) {
   // Signed-in only: this proxies a paid API with the church's key.
   const { error } = await requireViewer();
   if (error) return error;
@@ -64,3 +65,5 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: 'Failed to fetch scripture' }, { status: 500 });
   }
 }
+
+export const GET = inChurch(handleGET);

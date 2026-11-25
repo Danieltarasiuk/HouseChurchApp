@@ -1,8 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { sql } from '@/lib/db';
+import { sql, currentChurch } from '@/lib/db';
 import { requireViewer, forbidden, leadsGroup, leaderGroupScope, LEADER_ROLES } from '@/lib/authz';
 import { loadVisibilitySettings, redactMember } from '@/lib/directory';
 import { todayInChurchTz } from '@/lib/churchTime';
+import { inChurch } from '@/lib/churchRoute';
 
 /** Normalize a Postgres DATE value (Date object or ISO string) to 'YYYY-MM-DD' */
 function toDateStr(v: unknown): string {
@@ -10,7 +11,7 @@ function toDateStr(v: unknown): string {
   return String(v).split('T')[0];
 }
 
-export async function GET(req: NextRequest) {
+async function handleGET(req: NextRequest) {
   const { viewer, error } = await requireViewer({ roles: LEADER_ROLES });
   if (error) return error;
   const userRole = viewer.role;
@@ -30,12 +31,15 @@ export async function GET(req: NextRequest) {
     let memberQuery = `
       SELECT m.id, m.first_name || ' ' || m.last_name AS name,
              COALESCE(m.email, '') AS email,
-             COALESCE(u.role, m.role, 'member') AS role,
+             COALESCE(cm.role, m.role, 'member') AS role,
              m.group_id, hc.name AS group_name,
              m.user_id, m.date_of_birth,
              m.pco_household_id, m.household_name, m.attendance_note
       FROM members m
       LEFT JOIN users u ON m.user_id = u.id
+      -- The account's role in this church (the transaction's app.church_id).
+      LEFT JOIN church_memberships cm ON cm.user_id = m.user_id
+        AND cm.church_id = NULLIF(current_setting('app.church_id', true), '')::uuid
       LEFT JOIN groups hc ON m.group_id = hc.id
       WHERE m.is_active = true
     `;
@@ -179,7 +183,7 @@ export async function GET(req: NextRequest) {
     // viewer is an admin or this member's pastor, so this removes nothing
     // today; it keeps one code path deciding what member data leaves.
     const settings = await loadVisibilitySettings();
-    const today = todayInChurchTz();
+    const today = todayInChurchTz(currentChurch().timezone);
     return NextResponse.json({
       members: result.map((m: Record<string, unknown> & { id: string; group_id: string | null }) =>
         redactMember(viewer, m, settings, today)),
@@ -189,3 +193,5 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: 'Failed to load members' }, { status: 500 });
   }
 }
+
+export const GET = inChurch(handleGET);

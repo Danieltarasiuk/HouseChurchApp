@@ -35,7 +35,8 @@
  * read live, so it cannot silently drift — while nothing writable and nothing
  * data-bearing is needed in CI.
  *
- * DATABASE_URL is accepted as an alias for SCHEMA_SOURCE_URL.
+ * DATABASE_URL_OWNER, then DATABASE_URL, are accepted as aliases for
+ * SCHEMA_SOURCE_URL.
  *
  * Usage:
  *   DATABASE_URL=postgres://... node scripts/check-schema-drift.mjs
@@ -68,10 +69,14 @@ function fromEnvLocal(key) {
 }
 
 function resolveUrls() {
+  // Locally the owner URL comes first: the app's kinly_app role cannot create
+  // the throwaway schema the sandbox builds.
   const source =
     process.env.SCHEMA_SOURCE_URL ||
+    process.env.DATABASE_URL_OWNER ||
     process.env.DATABASE_URL ||
     fromEnvLocal('SCHEMA_SOURCE_URL') ||
+    fromEnvLocal('DATABASE_URL_OWNER') ||
     fromEnvLocal('DATABASE_URL');
 
   if (!source) {
@@ -129,6 +134,18 @@ const CONS = `
 const IDX = `
   SELECT tablename AS tbl, indexname AS name, indexdef AS def
   FROM pg_indexes WHERE schemaname = $1`;
+
+// Row-level security: whether it is on (and forced) per table, and each policy.
+const RLS = `
+  SELECT c.relname AS tbl, c.relrowsecurity AS enabled, c.relforcerowsecurity AS forced
+  FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
+  WHERE n.nspname = $1 AND c.relkind = 'r'`;
+
+const POLICIES = `
+  SELECT tablename AS tbl, policyname AS name,
+         permissive || ' ' || cmd || ' TO ' || array_to_string(roles, ',')
+           || ' USING (' || coalesce(qual, '') || ') WITH CHECK (' || coalesce(with_check, '') || ')' AS def
+  FROM pg_policies WHERE schemaname = $1`;
 
 const normalize = (s, tmp) =>
   (s || '').split(`${tmp}.`).join('').split('public.').join('').replace(/\s+/g, ' ').trim();
@@ -235,6 +252,8 @@ try {
     cols: (await sourceClient.query(COLS, ['public'])).rows.filter((r) => !IGNORED_TABLES.has(r.tbl)),
     cons: (await sourceClient.query(CONS, ['public'])).rows.filter((r) => !IGNORED_TABLES.has(r.tbl)),
     idx: (await sourceClient.query(IDX, ['public'])).rows.filter((r) => !IGNORED_TABLES.has(r.tbl)),
+    rls: (await sourceClient.query(RLS, ['public'])).rows.filter((r) => !IGNORED_TABLES.has(r.tbl)),
+    pol: (await sourceClient.query(POLICIES, ['public'])).rows.filter((r) => !IGNORED_TABLES.has(r.tbl)),
   };
   await sourceClient.query('ROLLBACK');
 
@@ -256,6 +275,8 @@ try {
     cols: (await sandboxClient.query(COLS, [tmpSchema])).rows,
     cons: (await sandboxClient.query(CONS, [tmpSchema])).rows,
     idx: (await sandboxClient.query(IDX, [tmpSchema])).rows,
+    rls: (await sandboxClient.query(RLS, [tmpSchema])).rows,
+    pol: (await sandboxClient.query(POLICIES, [tmpSchema])).rows,
   };
 } finally {
   // Unconditional: the sandbox is discarded whether or not anything failed.
@@ -273,10 +294,18 @@ const fileCons = index(fresh.cons, (r) => `${r.tbl}::${r.name}`, (r) => normaliz
 const liveIdx = index(live.idx, (r) => `${r.tbl}::${r.name}`, (r) => normalize(r.def, tmpSchema));
 const fileIdx = index(fresh.idx, (r) => `${r.tbl}::${r.name}`, (r) => normalize(r.def, tmpSchema));
 
+const describeRls = (r) => (r.enabled ? (r.forced ? 'enabled, forced' : 'enabled') : 'off');
+const liveRls = index(live.rls, (r) => `${r.tbl}::row level security`, describeRls);
+const fileRls = index(fresh.rls, (r) => `${r.tbl}::row level security`, describeRls);
+const livePol = index(live.pol, (r) => `${r.tbl}::${r.name}`, (r) => normalize(r.def, tmpSchema));
+const filePol = index(fresh.pol, (r) => `${r.tbl}::${r.name}`, (r) => normalize(r.def, tmpSchema));
+
 const sections = [
   ['column', diffMaps(liveCols, fileCols)],
   ['constraint', diffMaps(liveCons, fileCons)],
   ['index', diffMaps(liveIdx, fileIdx)],
+  ['setting', diffMaps(liveRls, fileRls)],
+  ['policy', diffMaps(livePol, filePol)],
 ];
 
 // Group every finding by table so the report reads table-first.
@@ -309,7 +338,8 @@ for (const [kind, d] of sections) {
   }
 }
 
-const counts = `${liveCols.size} columns, ${liveCons.size} constraints, ${liveIdx.size} indexes`;
+const rlsTables = [...liveRls.values()].filter((v) => v !== 'off').length;
+const counts = `${liveCols.size} columns, ${liveCons.size} constraints, ${liveIdx.size} indexes, ${livePol.size} policies, RLS on ${rlsTables} tables`;
 
 if (total === 0) {
   console.log(`schema.sql matches the live database (${counts}).`);

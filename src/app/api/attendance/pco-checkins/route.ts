@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { sql } from '@/lib/db';
+import { sql, currentChurch } from '@/lib/db';
 import { todayInChurchTz } from '@/lib/churchTime';
 import { ageOn } from '@/lib/directory';
 import { requireViewer, leaderGroupScope, LEADER_ROLES } from '@/lib/authz';
@@ -10,13 +10,14 @@ import {
   PcoCheckInsError,
   PCO_ERROR_MESSAGES,
 } from '@/lib/pco';
+import { inChurch } from '@/lib/churchRoute';
 
 /** Under 18 today in the church's calendar (not the server's UTC date). */
 function isMinor(dob: unknown): boolean {
   if (!dob) return false;
   const iso = (dob instanceof Date ? dob.toISOString() : String(dob)).slice(0, 10);
   if (!/^\d{4}-\d{2}-\d{2}$/.test(iso)) return false;
-  const age = ageOn(iso, todayInChurchTz());
+  const age = ageOn(iso, todayInChurchTz(currentChurch().timezone));
   return age >= 0 && age < 18;
 }
 
@@ -27,7 +28,7 @@ function isMinor(dob: unknown): boolean {
  * the attendance page uses the result to pre-tick members, and the user
  * still saves.
  */
-export async function GET(req: NextRequest) {
+async function handleGET(req: NextRequest) {
   const { viewer, error } = await requireViewer({ roles: LEADER_ROLES });
   if (error) return error;
   const scope = leaderGroupScope(viewer);
@@ -94,3 +95,5 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: 'Failed to load check-ins' }, { status: 500 });
   }
 }
+
+export const GET = inChurch(handleGET);

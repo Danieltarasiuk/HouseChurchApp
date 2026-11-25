@@ -4,12 +4,11 @@
  * sync step.
  */
 import { NextResponse } from 'next/server';
-import type { Session } from 'next-auth';
-import { auth } from './auth';
+import { requireViewer } from './authz';
 import { sql } from './db';
 import { isCalendarCategory } from './calendarCategories';
 import { isHHMM, isISODate, toHHMM } from './calendarDates';
-import { googleErrorMessage, pushEvent } from './googleCalendarSync';
+import { getCalendarId, googleErrorMessage, pushEvent } from './googleCalendarSync';
 
 export type CalendarRole = 'admin' | 'group_leader';
 
@@ -50,20 +49,14 @@ export function isUUID(value: string): boolean {
 }
 
 type Guard =
-  | { ok: true; session: Session; role: CalendarRole; userId: string }
+  | { ok: true; role: CalendarRole; userId: string }
   | { ok: false; response: NextResponse };
 
-/** 401 when signed out, 403 when the role is not in `allowed`. */
+/** 401 when signed out, 403 when the role (in the current church) is not in `allowed`. */
 export async function requireCalendarRole(allowed: CalendarRole[]): Promise<Guard> {
-  const session = await auth();
-  if (!session?.user?.id) {
-    return { ok: false, response: NextResponse.json({ error: 'Unauthorized' }, { status: 401 }) };
-  }
-  const role = (session.user as { role?: string }).role;
-  if (!role || !(allowed as string[]).includes(role)) {
-    return { ok: false, response: NextResponse.json({ error: 'Forbidden' }, { status: 403 }) };
-  }
-  return { ok: true, session, role: role as CalendarRole, userId: session.user.id };
+  const { viewer, error } = await requireViewer({ roles: allowed });
+  if (error) return { ok: false, response: error };
+  return { ok: true, role: viewer.role as CalendarRole, userId: viewer.userId };
 }
 
 /** Pastors never see internal notes or sync state. */
@@ -147,6 +140,8 @@ export function validateCalendarEvent(
  * failure is stored as sync_status='error' and the database save stands.
  */
 export async function syncCalendarEvent(row: CalendarEventRow): Promise<CalendarEventRow> {
+  // A church with no Google Calendar keeps its events in the app only.
+  if (!getCalendarId()) return row;
   try {
     const googleId = await pushEvent(row);
     const rows = await sql(

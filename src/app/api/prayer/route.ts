@@ -1,9 +1,10 @@
 import { NextResponse } from 'next/server';
-import { sql } from '@/lib/db';
+import { sql, currentChurchId } from '@/lib/db';
 import { requireViewer, forbidden, isAdmin, leadsGroup } from '@/lib/authz';
 import { canSeePrayer } from '@/lib/prayerVisibility';
+import { inChurch } from '@/lib/churchRoute';
 
-export async function GET() {
+async function handleGET() {
   const { viewer, error } = await requireViewer();
   if (error) return error;
 
@@ -29,7 +30,7 @@ export async function GET() {
   }
 }
 
-export async function POST(request: Request) {
+async function handlePOST(request: Request) {
   const { viewer, error } = await requireViewer();
   if (error) return error;
 
@@ -72,10 +73,10 @@ export async function POST(request: Request) {
     }
 
     const result = await sql(
-      `INSERT INTO prayer_requests (title, description, user_id, member_id, status, visibility, group_id)
-       VALUES ($1, $2, $3, $4, 'active', $5, $6)
+      `INSERT INTO prayer_requests (church_id, title, description, user_id, member_id, status, visibility, group_id)
+       VALUES ($7, $1, $2, $3, $4, 'active', $5, $6)
        RETURNING id, title, description, status, visibility, group_id, member_id, created_at, user_id`,
-      [title.trim(), description?.trim() || null, viewer.userId, member_id, resolvedVis, resolvedGroupId]
+      [title.trim(), description?.trim() || null, viewer.userId, member_id, resolvedVis, resolvedGroupId, currentChurchId()]
     );
 
     // Resolve member_name for the response if on-behalf
@@ -97,7 +98,7 @@ export async function POST(request: Request) {
   }
 }
 
-export async function PATCH(request: Request) {
+async function handlePATCH(request: Request) {
   const { viewer, error } = await requireViewer();
   if (error) return error;
 
@@ -156,3 +157,7 @@ export async function PATCH(request: Request) {
     return NextResponse.json({ error: 'Failed to update' }, { status: 500 });
   }
 }
+
+export const GET = inChurch(handleGET);
+export const POST = inChurch(handlePOST);
+export const PATCH = inChurch(handlePATCH);

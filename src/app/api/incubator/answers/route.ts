@@ -1,8 +1,9 @@
 import { NextResponse } from 'next/server';
-import { sql } from '@/lib/db';
+import { sql, currentChurchId } from '@/lib/db';
 import { requireViewer, forbidden } from '@/lib/authz';
 import { hasIncubatorAccess } from '@/lib/incubatorAccess';
 import { incubatorDay, isModuleComplete } from '@/lib/incubator';
+import { inChurch } from '@/lib/churchRoute';
 
 const MAX_ANSWER_LENGTH = 10_000;
 
@@ -13,7 +14,7 @@ const MAX_ANSWER_LENGTH = 10_000;
  *
  *   POST { week, day, module, answers: { "<question index>": "text" } }
  */
-export async function POST(request: Request) {
+async function handlePOST(request: Request) {
   const { viewer, error } = await requireViewer();
   if (error) return error;
   if (!(await hasIncubatorAccess(viewer))) return forbidden();
@@ -46,16 +47,18 @@ export async function POST(request: Request) {
   const completed = isModuleComplete(week, day, moduleIdx, answers);
 
   const rows = await sql(
-    `INSERT INTO incubator_progress (user_id, week, day, module_index, answers, completed, completed_at)
-     VALUES ($1, $2, $3, $4, $5, $6, CASE WHEN $6 THEN now() ELSE NULL END)
-     ON CONFLICT (user_id, week, day, module_index)
+    `INSERT INTO incubator_progress (church_id, user_id, week, day, module_index, answers, completed, completed_at)
+     VALUES ($7, $1, $2, $3, $4, $5, $6, CASE WHEN $6 THEN now() ELSE NULL END)
+     ON CONFLICT (church_id, user_id, week, day, module_index)
      DO UPDATE SET answers = EXCLUDED.answers,
                    completed = EXCLUDED.completed,
                    completed_at = CASE WHEN EXCLUDED.completed
                                        THEN COALESCE(incubator_progress.completed_at, now())
                                        ELSE NULL END
      RETURNING completed`,
-    [viewer.userId, week, day, moduleIdx, JSON.stringify(answers), completed]
+    [viewer.userId, week, day, moduleIdx, JSON.stringify(answers), completed, currentChurchId()]
   );
   return NextResponse.json({ success: true, completed: rows[0].completed });
 }
+
+export const POST = inChurch(handlePOST);
