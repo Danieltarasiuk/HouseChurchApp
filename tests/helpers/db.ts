@@ -59,7 +59,7 @@ export function setupTestDb(hooks: {
   hooks.beforeAll(async () => {
     current.db = await newTestDb();
     if (seed) await seed(current.db);
-  }, 30_000);
+  }); // hookTimeout in vitest.config.ts
   hooks.beforeEach(async () => {
     frames.length = 0;
     cookieJar.clear();
