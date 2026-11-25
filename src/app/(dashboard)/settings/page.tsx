@@ -28,6 +28,8 @@ interface User {
   status: 'active' | 'pending';
   created_at: string;
   suggested_member_id: string | null;
+  /** Active Pastor Incubator grant (admins have access regardless). */
+  incubator_access: boolean;
 }
 
 interface LastSync {
@@ -116,6 +118,25 @@ function SettingsContent() {
       setLoading(false);
     }
   }, [status, isAdmin, fetchUsers]);
+
+  const [incubatorUpdating, setIncubatorUpdating] = useState<string | null>(null);
+  const setIncubatorAccess = async (user: User, active: boolean) => {
+    setIncubatorUpdating(user.id);
+    setError('');
+    try {
+      const res = await fetch('/api/settings/incubator-access', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userId: user.id, active }),
+      });
+      if (!res.ok) throw new Error();
+      setUsers((prev) => prev.map((u) => (u.id === user.id ? { ...u, incubator_access: active } : u)));
+    } catch {
+      setError(t('settings.incubatorError'));
+    } finally {
+      setIncubatorUpdating(null);
+    }
+  };
 
   const removeUser = async (user: User) => {
     if (!window.confirm(t('settings.removeConfirm').replace('{name}', user.name || user.email))) return;
@@ -441,13 +462,14 @@ function SettingsContent() {
                   <th>{t('auth.email')}</th>
                   <th>{t('settings.currentRole')}</th>
                   <th>{t('settings.changeRole')}</th>
+                  <th>{t('settings.incubatorAccess')}</th>
                   <th>{t('settings.remove')}</th>
                 </tr>
               </thead>
               <tbody>
                 {filtered.length === 0 ? (
                   <tr>
-                    <td colSpan={5} style={{ textAlign: 'center', color: 'var(--text-tertiary)', padding: '24px' }}>
+                    <td colSpan={6} style={{ textAlign: 'center', color: 'var(--text-tertiary)', padding: '24px' }}>
                       {t('common.noResults')}
                     </td>
                   </tr>
@@ -486,6 +508,21 @@ function SettingsContent() {
                                 </option>
                               ))}
                             </select>
+                          )}
+                        </td>
+                        <td>
+                          {user.role === 'admin' ? (
+                            <span style={{ fontSize: '13px', color: 'var(--text-tertiary)' }}>{t('settings.incubatorAlways')}</span>
+                          ) : user.status === 'pending' ? (
+                            <span style={{ fontSize: '13px', color: 'var(--text-tertiary)' }}>—</span>
+                          ) : (
+                            <input
+                              type="checkbox"
+                              checked={user.incubator_access}
+                              disabled={incubatorUpdating === user.id}
+                              onChange={(e) => setIncubatorAccess(user, e.target.checked)}
+                              aria-label={t('settings.incubatorToggle').replace('{name}', user.name || user.email)}
+                            />
                           )}
                         </td>
                         <td>

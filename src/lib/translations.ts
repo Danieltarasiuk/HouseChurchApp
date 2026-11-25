@@ -495,6 +495,13 @@ export const translations: Translations = {
     'cal.err.invalid_time': "The time is not valid.",
     'cal.err.end_time_before_start': "The end time must be after the start time.",
     'cal.err.invalid_status': "The status is not valid.",
+    'disc.dayComplete': "Day complete: every answer is filled in.",
+    'inc.saveError': "Could not save your answers. Check your connection; they will be saved on your next change.",
+    'inc.loadError': "Could not load this lesson. Please reload the page.",
+    'settings.incubatorAccess': "Incubator",
+    'settings.incubatorAlways': "Always (admin)",
+    'settings.incubatorToggle': "Pastor Incubator access for {name}",
+    'settings.incubatorError': "Could not change Incubator access.",
   },
   es: {
     'app.title': 'HouseChurchApp',
@@ -978,6 +985,13 @@ export const translations: Translations = {
     'cal.err.invalid_time': "La hora no es válida.",
     'cal.err.end_time_before_start': "La hora de fin debe ser posterior a la de inicio.",
     'cal.err.invalid_status': "El estado no es válido.",
+    'disc.dayComplete': "Día completado: todas las respuestas están completas.",
+    'inc.saveError': "No se pudieron guardar sus respuestas. Revise su conexión; se guardarán en su próximo cambio.",
+    'inc.loadError': "No se pudo cargar esta lección. Recargue la página.",
+    'settings.incubatorAccess': "Incubadora",
+    'settings.incubatorAlways': "Siempre (administrador)",
+    'settings.incubatorToggle': "Acceso a la Incubadora de Pastores para {name}",
+    'settings.incubatorError': "No se pudo cambiar el acceso a la Incubadora.",
   },
 };
 

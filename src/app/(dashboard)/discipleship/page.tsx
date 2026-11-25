@@ -20,6 +20,8 @@ export default function DiscipleshipPage() {
   const [answers, setAnswers] = useState<AnswersState>({}); // keyed by "week-day-passage-type"
   const [verseModal, setVerseModal] = useState<VerseModalState | null>(null); // { reference }
   const [savingState, setSavingState] = useState<'idle' | 'saving' | 'saved'>('idle');
+  /** Days finished (server-decided), keyed "weekIdx-dayIdx". */
+  const [completedDays, setCompletedDays] = useState<Record<string, boolean>>({});
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const savedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -32,6 +34,7 @@ export default function DiscipleshipPage() {
     fetch(`/api/discipleship/answers?week=${weekIdx + 1}&day=${dayIdx + 1}`)
       .then((res) => res.json())
       .then((data) => {
+        setCompletedDays((prev) => ({ ...prev, [`${weekIdx}-${dayIdx}`]: !!data.completed }));
         if (data.answers && typeof data.answers === 'object') {
           const prefixed: AnswersState = {};
           for (const [key, val] of Object.entries(data.answers)) {
@@ -56,16 +59,17 @@ export default function DiscipleshipPage() {
         }
       }
 
-      if (Object.keys(stripped).length === 0) return;
-
+      // An empty set is saved too: that is how clearing a day's answers persists.
       setSavingState('saving');
       fetch('/api/discipleship/answers', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ week: wIdx + 1, day: dIdx + 1, answers: stripped }),
       })
-        .then((res) => {
+        .then(async (res) => {
           if (res.ok) {
+            const data = await res.json().catch(() => ({}));
+            setCompletedDays((prev) => ({ ...prev, [`${wIdx}-${dIdx}`]: !!data.completed }));
             setSavingState('saved');
             if (savedTimerRef.current) clearTimeout(savedTimerRef.current);
             savedTimerRef.current = setTimeout(() => setSavingState('idle'), 2000);
@@ -156,6 +160,12 @@ export default function DiscipleshipPage() {
           </button>
         ))}
       </div>
+
+      {completedDays[`${weekIdx}-${dayIdx}`] && (
+        <div className="settings-alert settings-alert-success" role="status" style={{ marginBottom: '12px' }}>
+          {t('disc.dayComplete')}
+        </div>
+      )}
 
       {/* Section Label */}
       <div className={`disc-section-label ${section}`}>
