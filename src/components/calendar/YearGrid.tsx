@@ -5,7 +5,7 @@ import { AlertTriangle, Plus, X } from 'lucide-react';
 import { useLang } from '@/context/LangContext';
 import { CALENDAR_CATEGORIES, CalendarCategory } from '@/lib/calendarCategories';
 import { addDaysISO, toLocalISODate } from '@/lib/calendarDates';
-import { formatWhen, type CalendarEvent } from './EventModal';
+import { formatWhen, KindTag, type CalendarEvent } from './EventModal';
 
 const MAX_DOTS = 4;
 
@@ -173,6 +173,7 @@ export function YearGrid({
                       <span className={`cal-day-item-title${e.status === 'cancelled' ? ' cal-strike' : ''}`}>{title(e)}</span>
                       <span className="cal-day-item-when">{formatWhen(e, language, t('cal.allDay'))}</span>
                     </span>
+                    <KindTag visibility={e.visibility} />
                     {isAdmin && e.sync_status === 'error' && <AlertTriangle size={14} color="var(--warning)" />}
                   </button>
                 );

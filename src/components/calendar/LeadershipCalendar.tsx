@@ -19,6 +19,14 @@ import { addDaysISO, toLocalISODate } from '@/lib/calendarDates';
 import { YearGrid } from './YearGrid';
 import { EventModal, EventDetails, type CalendarEvent, type EventDraft, emptyDraft, draftFromEvent } from './EventModal';
 
+/** The Calendar's kind filter: both kinds, or one. */
+type KindFilter = 'all' | 'leaders' | 'members';
+const KIND_FILTERS: { key: KindFilter; label: string }[] = [
+  { key: 'all', label: 'cal.kindAll' },
+  { key: 'leaders', label: 'cal.kindLeaders' },
+  { key: 'members', label: 'cal.kindChurch' },
+];
+
 /** `yearGrid` is our own dot overview; the others are FullCalendar views. */
 type ViewKey = 'month' | 'monthList' | 'yearGrid' | 'year';
 type FcViewKey = Exclude<ViewKey, 'yearGrid'>;
@@ -62,6 +70,7 @@ export function LeadershipCalendar({ role }: { role: 'admin' | 'group_leader' })
   const [loading, setLoading] = useState(false);
   const [categories, setCategories] = useState<Set<CalendarCategory>>(new Set(CALENDAR_CATEGORY_KEYS));
   const [showCancelled, setShowCancelled] = useState(true);
+  const [kind, setKind] = useState<KindFilter>('all');
   const [isPhone, setIsPhone] = useState(false);
   const [draft, setDraft] = useState<EventDraft | null>(null);
   const [details, setDetails] = useState<CalendarEvent | null>(null);
@@ -137,9 +146,10 @@ export function LeadershipCalendar({ role }: { role: 'admin' | 'group_leader' })
       rows.filter(
         (r) =>
           categories.has(r.category as CalendarCategory) &&
-          (showCancelled || r.status !== 'cancelled')
+          (showCancelled || r.status !== 'cancelled') &&
+          (kind === 'all' || r.visibility === kind)
       ),
-    [rows, categories, showCancelled]
+    [rows, categories, showCancelled, kind]
   );
 
   const isList = view !== 'month';
@@ -157,6 +167,7 @@ export function LeadershipCalendar({ role }: { role: 'admin' | 'group_leader' })
       const classNames: string[] = [];
       if (r.status === 'cancelled') classNames.push('cal-ev-cancelled');
       if (r.sync_status === 'error') classNames.push('cal-ev-sync-error');
+      classNames.push(`cal-ev-${r.visibility}`);
 
       // FullCalendar's all-day end is exclusive; ours is inclusive.
       let start = timed ? `${r.start_date}T${r.start_time}:00` : r.start_date;
@@ -183,10 +194,10 @@ export function LeadershipCalendar({ role }: { role: 'admin' | 'group_leader' })
         borderColor: cat?.color,
         textColor: '#fff',
         classNames,
-        extendedProps: { row: r, rangeLabel },
+        extendedProps: { row: r, rangeLabel, tag: t(r.visibility === 'members' ? 'cal.tagChurch' : 'cal.tagLeaders') },
       };
     });
-  }, [visibleRows, language, isList, range]);
+  }, [visibleRows, language, isList, range, t]);
 
   // Year view: first listed day of each month gets a month heading + chip target.
   // In list views every event is listed only on its (first visible) start day.
@@ -359,6 +370,13 @@ export function LeadershipCalendar({ role }: { role: 'admin' | 'group_leader' })
             {t('cal.none')}
           </button>
         </div>
+        <div className="cal-segmented cal-kind-filter" role="group" aria-label={t('cal.kindFilter')} data-testid="cal-kind-filter">
+          {KIND_FILTERS.map((k) => (
+            <button key={k.key} type="button" aria-pressed={kind === k.key} className={kind === k.key ? 'active' : ''} onClick={() => setKind(k.key)}>
+              {t(k.label)}
+            </button>
+          ))}
+        </div>
         <label className="cal-toggle">
           <input type="checkbox" checked={showCancelled} onChange={(e) => setShowCancelled(e.target.checked)} />
           {t('cal.showCancelled')}
@@ -407,10 +425,16 @@ export function LeadershipCalendar({ role }: { role: 'admin' | 'group_leader' })
           eventDisplay="block"
           displayEventEnd={view !== 'month'}
           eventContent={(arg) => {
-            const label = arg.event.extendedProps.rangeLabel as string | null;
-            // `true` = FullCalendar's default rendering (undefined renders nothing).
-            if (!label || !arg.view.type.startsWith('list')) return true;
-            return { html: `<a>${escapeHtml(arg.event.title)} <span class="cal-range">· ${escapeHtml(label)}</span></a>` };
+            // Every event carries its kind's tag (Leadership / Church).
+            const row = arg.event.extendedProps.row as CalendarEvent;
+            const tag = `<span class="cal-kind-tag cal-kind-${row.visibility}">${escapeHtml(arg.event.extendedProps.tag as string)}</span>`;
+            const title = escapeHtml(arg.event.title);
+            if (arg.view.type.startsWith('list')) {
+              const range = arg.event.extendedProps.rangeLabel as string | null;
+              return { html: `<a>${tag} ${title}${range ? ` <span class="cal-range">· ${escapeHtml(range)}</span>` : ''}</a>` };
+            }
+            const time = arg.timeText ? `<span class="fc-event-time">${escapeHtml(arg.timeText)}</span> ` : '';
+            return { html: `<div class="fc-event-main-frame cal-ev-frame">${tag}${time}<span class="fc-event-title">${title}</span></div>` };
           }}
         />
         )}

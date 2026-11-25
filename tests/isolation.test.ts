@@ -77,6 +77,7 @@ const READS: [string, () => Promise<Response>][] = [
   ['church', async () => (await route('church')).GET()],
   ['prayer', async () => (await route('prayer')).GET()],
   ['calendar-events', async () => (await route('calendar-events')).GET(req('/api/calendar-events?from=2026-11-01&to=2026-12-31'))],
+  ['calendar-events/[id] T', async () => (await route('calendar-events/[id]')).GET(req(`/api/calendar-events/${T_ROW.event}`), params(T_ROW.event))],
   ['pastoral/members', async () => (await route('pastoral/members')).GET(req('/api/pastoral/members'))],
   ['pastoral/members ?group_id=T', async () => (await route('pastoral/members')).GET(req(`/api/pastoral/members?group_id=${GROUP.T}`))],
   ['pastoral/meetings', async () => (await route('pastoral/meetings')).GET(req('/api/pastoral/meetings'))],

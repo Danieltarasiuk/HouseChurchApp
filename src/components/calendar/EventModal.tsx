@@ -3,7 +3,21 @@
 import React, { useState } from 'react';
 import { AlertTriangle, X } from 'lucide-react';
 import { useLang } from '@/context/LangContext';
+import { useChurch } from '@/context/ChurchContext';
 import { CALENDAR_CATEGORIES, CALENDAR_CATEGORY_KEYS, CalendarCategory } from '@/lib/calendarCategories';
+
+/** 'leaders': leadership event (admins and group leaders); 'members': church event (everyone). */
+export type EventVisibility = 'leaders' | 'members';
+
+/** The kind's tag, as shown on the calendar and in the details. */
+export function KindTag({ visibility }: { visibility: EventVisibility }) {
+  const { t } = useLang();
+  return (
+    <span className={`cal-kind-tag cal-kind-${visibility}`}>
+      {t(visibility === 'members' ? 'cal.tagChurch' : 'cal.tagLeaders')}
+    </span>
+  );
+}
 
 /** A row as returned by GET /api/calendar-events (admin-only fields optional). */
 export interface CalendarEvent {
@@ -16,6 +30,7 @@ export interface CalendarEvent {
   start_time: string | null;
   end_time: string | null;
   status: 'scheduled' | 'cancelled';
+  visibility: EventVisibility;
   notes?: string | null;
   sync_status?: 'synced' | 'pending' | 'error';
   sync_error?: string | null;
@@ -34,6 +49,7 @@ export interface EventDraft {
   end_time: string;
   notes: string;
   status: 'scheduled' | 'cancelled';
+  visibility: EventVisibility;
   sync_status?: CalendarEvent['sync_status'];
   sync_error?: string | null;
 }
@@ -52,6 +68,7 @@ export function emptyDraft(date: string): EventDraft {
     end_time: '21:00',
     notes: '',
     status: 'scheduled',
+    visibility: 'leaders',
   };
 }
 
@@ -70,6 +87,7 @@ export function draftFromEvent(e: CalendarEvent): EventDraft {
     end_time: e.end_time ?? '21:00',
     notes: e.notes ?? '',
     status: e.status,
+    visibility: e.visibility ?? 'leaders',
     sync_status: e.sync_status,
     sync_error: e.sync_error,
   };
@@ -121,6 +139,7 @@ export function EventModal({
   onChanged: (message: string | null, kind: 'ok' | 'warn') => Promise<void>;
 }) {
   const { language, t, label } = useLang();
+  const { church } = useChurch();
   const [d, setD] = useState<EventDraft>(initial);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -145,6 +164,7 @@ export function EventModal({
     end_time: d.allDay ? null : d.end_time,
     notes: d.notes,
     status: d.status,
+    visibility: d.visibility,
   });
 
   /** Run a mutation; keep the modal open on failure, report Google sync outcome on success. */
@@ -167,7 +187,12 @@ export function EventModal({
       const ev = data.event as CalendarEvent | undefined;
       const syncFailed = ev?.sync_status === 'error';
       if (method === 'DELETE') await onChanged(t('cal.deleted'), 'ok');
-      else await onChanged(syncFailed ? t('cal.savedSyncFailed') : t('cal.saved'), syncFailed ? 'warn' : 'ok');
+      else {
+        // Only leadership events go to Google, and only when the church has a calendar.
+        const pushed = ev?.visibility === 'leaders' && !!church?.hasGoogleCalendar;
+        const message = syncFailed ? t('cal.savedSyncFailed') : pushed ? t('cal.saved') : t('cal.savedLocal');
+        await onChanged(message, syncFailed ? 'warn' : 'ok');
+      }
       if (closeAfter && !syncFailed) onClose();
       else if (ev) setD(draftFromEvent(ev)); // stay open to show the sync error
       return ev ?? null;
@@ -254,6 +279,26 @@ export function EventModal({
               </select>
             </div>
           </div>
+          <div className="form-group">
+            <label htmlFor="cal-visibility">{t('cal.visibility')}</label>
+            <select
+              id="cal-visibility"
+              className="form-select"
+              value={d.visibility}
+              onChange={(e) => set('visibility', e.target.value as EventVisibility)}
+              data-testid="cal-visibility"
+            >
+              <option value="leaders">{t('cal.visibilityLeaders')}</option>
+              <option value="members">{t('cal.visibilityMembers')}</option>
+            </select>
+            <div className="cal-hint">
+              {d.visibility === 'members'
+                ? t('cal.visibilityHintMembers')
+                : church?.hasGoogleCalendar
+                  ? t('cal.visibilityHintLeadersGoogle')
+                  : t('cal.visibilityHintLeaders')}
+            </div>
+          </div>
           <label className="cal-toggle" style={{ marginBottom: 12 }}>
             <input type="checkbox" checked={d.allDay} onChange={(e) => set('allDay', e.target.checked)} />
             {t('cal.allDay')}
@@ -322,7 +367,7 @@ export function EventModal({
   );
 }
 
-/** Read-only details for pastors: title, when, category. No notes, no sync state. */
+/** Read-only details for group leaders and members: title, when, category, kind. No notes, no sync state. */
 export function EventDetails({ event, onClose }: { event: CalendarEvent; onClose: () => void }) {
   const { language, t, label } = useLang();
   const cat = CALENDAR_CATEGORIES[event.category as CalendarCategory];
@@ -348,6 +393,10 @@ export function EventDetails({ event, onClose }: { event: CalendarEvent; onClose
               <span className="cal-chip-dot" />
               {cat ? label(language === 'es' ? cat.es : cat.en) : event.category}
             </span>
+          </div>
+          <div className="cal-detail-row">
+            <span className="cal-detail-label">{t('cal.visibility')}</span>
+            <KindTag visibility={event.visibility} />
           </div>
         </div>
       </div>

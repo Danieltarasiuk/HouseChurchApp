@@ -3,6 +3,7 @@ import { sql } from '@/lib/db';
 import {
   CALENDAR_EVENT_COLUMNS,
   CalendarEventRow,
+  forRole,
   getCalendarEvent,
   isUUID,
   requireCalendarRole,
@@ -14,7 +15,28 @@ import { inChurch } from '@/lib/churchRoute';
 
 export const maxDuration = 30;
 
-const EDITABLE = ['title_en', 'title_es', 'category', 'start_date', 'end_date', 'start_time', 'end_time', 'notes', 'status'] as const;
+const EDITABLE = ['title_en', 'title_es', 'category', 'start_date', 'end_date', 'start_time', 'end_time', 'notes', 'status', 'visibility'] as const;
+
+/**
+ * GET — one event. A member asking for a leadership event gets the same 404
+ * as for an id that does not exist, so its existence is not revealed.
+ */
+async function handleGET(_req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  const guard = await requireCalendarRole(['admin', 'group_leader', 'member']);
+  if (!guard.ok) return guard.response;
+
+  const { id } = await params;
+  if (!isUUID(id)) return NextResponse.json({ error: 'Not found' }, { status: 404 });
+
+  try {
+    const row = await getCalendarEvent(id, guard.role);
+    if (!row) return NextResponse.json({ error: 'Not found' }, { status: 404 });
+    return NextResponse.json({ event: forRole(row, guard.role) });
+  } catch (error) {
+    console.error('Calendar event GET error:', error);
+    return NextResponse.json({ error: 'Failed to load event' }, { status: 500 });
+  }
+}
 
 /** PATCH — admin updates any subset of fields (cancel/restore = {status}); then pushes. */
 async function handlePATCH(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
@@ -46,11 +68,11 @@ async function handlePATCH(req: NextRequest, { params }: { params: Promise<{ id:
     const rows = await sql(
       `UPDATE calendar_events SET
          title_en = $2, title_es = $3, category = $4, start_date = $5, end_date = $6,
-         start_time = $7, end_time = $8, notes = $9, status = $10,
+         start_time = $7, end_time = $8, notes = $9, status = $10, visibility = $11,
          sync_status = 'pending', updated_at = now()
        WHERE id = $1
        RETURNING ${CALENDAR_EVENT_COLUMNS}`,
-      [id, e.title_en, e.title_es, e.category, e.start_date, e.end_date, e.start_time, e.end_time, e.notes, e.status]
+      [id, e.title_en, e.title_es, e.category, e.start_date, e.end_date, e.start_time, e.end_time, e.notes, e.status, e.visibility]
     );
     if (rows.length === 0) return NextResponse.json({ error: 'Not found' }, { status: 404 });
     row = rows[0] as CalendarEventRow;
@@ -96,5 +118,6 @@ async function handleDELETE(_req: NextRequest, { params }: { params: Promise<{ i
   }
 }
 
+export const GET = inChurch(handleGET);
 export const PATCH = inChurch(handlePATCH);
 export const DELETE = inChurch(handleDELETE);
