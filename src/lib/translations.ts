@@ -4,7 +4,7 @@
  * share one dictionary.
  */
 
-import { withGroupLabel } from '@/lib/groupLabel';
+import { withGroupLabel, type GroupLabels } from '@/lib/groupLabel';
 
 export type Language = 'en' | 'es';
 
@@ -339,7 +339,7 @@ export const translations: Translations = {
     'settings.syncWarn.unexpected': 'unexpected error ({detail})',
     'nav.calendar': 'Calendar',
     'cal.title': 'Leadership Calendar',
-    'cal.sub': 'Church events for the leadership team. Changes go to the CityChurch Miami Google Calendar.',
+    'cal.sub': 'Church events for the leadership team. Changes go to the {church} Google Calendar.',
     'cal.subPastor': 'Church events for the leadership team.',
     'cal.viewMonth': 'Month',
     'cal.viewMonthList': 'Month list',
@@ -504,6 +504,33 @@ export const translations: Translations = {
     'settings.incubatorAlways': "Always (admin)",
     'settings.incubatorToggle': "Pastor Incubator access for {name}",
     'settings.incubatorError': "Could not change Incubator access.",
+    'church.title': "Church",
+    'church.desc': "Your church's name, time zone and default language, and the words it uses for its groups.",
+    'church.name': "Name",
+    'church.timezone': "Time zone",
+    'church.defaultLanguage': "Default language",
+    'church.lang.en': "English",
+    'church.lang.es': "Spanish",
+    'church.groupLabels': "What your groups are called",
+    'church.labelSingularEn': "Singular (English)",
+    'church.labelPluralEn': "Plural (English)",
+    'church.labelSingularEs': "Singular (Spanish)",
+    'church.labelPluralEs': "Plural (Spanish)",
+    'church.checkinsEvent': "Planning Center Check-Ins event for Sunday",
+    'church.checkinsHelp': "Sunday attendance is pre-filled from this Check-Ins event. Leave empty to turn it off.",
+    'church.churchCenterUrl': "Church Center address (Give button)",
+    'church.churchCenterHelp': "For example https://yourchurch.churchcenter.com. Leave empty to hide the Give button.",
+    'church.save': "Save",
+    'church.saved': "Church settings saved.",
+    'church.saveError': "Could not save the church settings.",
+    'church.loadError': "Could not load the church settings.",
+    'church.err.required': "This field is required.",
+    'church.err.invalid_timezone': "Choose a time zone from the list.",
+    'church.err.invalid_language': "Choose English or Spanish.",
+    'church.err.invalid_url': "Enter an https:// Church Center address.",
+    'church.err.too_long': "This is too long.",
+    'church.switchLabel': "Church",
+    'church.switchError': "Could not switch church. Please try again.",
   },
   es: {
     'app.title': 'HouseChurchApp',
@@ -630,7 +657,7 @@ export const translations: Translations = {
     'role.member': 'Miembro',
     'nav.calendar': 'Calendario',
     'cal.title': 'Calendario de Liderazgo',
-    'cal.sub': 'Eventos de la iglesia para el equipo de liderazgo. Los cambios se envían al Google Calendar de CityChurch Miami.',
+    'cal.sub': 'Eventos de la iglesia para el equipo de liderazgo. Los cambios se envían al Google Calendar de {church}.',
     'cal.subPastor': 'Eventos de la iglesia para el equipo de liderazgo.',
     'cal.viewMonth': 'Mes',
     'cal.viewMonthList': 'Lista del mes',
@@ -994,6 +1021,33 @@ export const translations: Translations = {
     'settings.incubatorAlways': "Siempre (administrador)",
     'settings.incubatorToggle': "Acceso a la Incubadora de Pastores para {name}",
     'settings.incubatorError': "No se pudo cambiar el acceso a la Incubadora.",
+    'church.title': "Iglesia",
+    'church.desc': "El nombre, la zona horaria y el idioma predeterminado de su iglesia, y cómo llama a sus grupos.",
+    'church.name': "Nombre",
+    'church.timezone': "Zona horaria",
+    'church.defaultLanguage': "Idioma predeterminado",
+    'church.lang.en': "Inglés",
+    'church.lang.es': "Español",
+    'church.groupLabels': "Cómo se llaman sus grupos",
+    'church.labelSingularEn': "Singular (inglés)",
+    'church.labelPluralEn': "Plural (inglés)",
+    'church.labelSingularEs': "Singular (español)",
+    'church.labelPluralEs': "Plural (español)",
+    'church.checkinsEvent': "Evento de Check-Ins de Planning Center para el domingo",
+    'church.checkinsHelp': "La asistencia del domingo se completa con este evento de Check-Ins. Déjelo vacío para desactivarlo.",
+    'church.churchCenterUrl': "Dirección de Church Center (botón Dar)",
+    'church.churchCenterHelp': "Por ejemplo https://suiglesia.churchcenter.com. Déjelo vacío para ocultar el botón Dar.",
+    'church.save': "Guardar",
+    'church.saved': "Configuración de la iglesia guardada.",
+    'church.saveError': "No se pudo guardar la configuración de la iglesia.",
+    'church.loadError': "No se pudo cargar la configuración de la iglesia.",
+    'church.err.required': "Este campo es obligatorio.",
+    'church.err.invalid_timezone': "Elija una zona horaria de la lista.",
+    'church.err.invalid_language': "Elija inglés o español.",
+    'church.err.invalid_url': "Escriba una dirección de Church Center que empiece con https://.",
+    'church.err.too_long': "Es demasiado largo.",
+    'church.switchLabel': "Iglesia",
+    'church.switchError': "No se pudo cambiar de iglesia. Inténtelo de nuevo.",
   },
 };
 
@@ -1004,12 +1058,12 @@ export const isLanguage = (v: unknown): v is Language => v === 'en' || v === 'es
 
 /**
  * Looks up a key (falling back to English, then the key itself) and fills in
- * the group label ({Group}, {groups}, ...; see groupLabel.ts). Used by the
- * server (metadata) and by the client t().
+ * the church's group label ({Group}, {groups}, ...; see groupLabel.ts). Used
+ * by the server (metadata) and by the client t().
  */
-export function translate(lang: Language, key: string): string {
+export function translate(lang: Language, key: string, labels?: GroupLabels): string {
   const own = translations[lang][key];
-  if (own) return withGroupLabel(own, lang);
+  if (own) return withGroupLabel(own, lang, labels);
   const en = translations.en[key];
-  return en ? withGroupLabel(en, 'en') : key;
+  return en ? withGroupLabel(en, 'en', labels) : key;
 }

@@ -10,13 +10,14 @@ import {
   validateCalendarEvent,
 } from '@/lib/calendarEvents';
 import { deleteGoogleEvent, googleErrorMessage } from '@/lib/googleCalendarSync';
+import { inChurch } from '@/lib/churchRoute';
 
 export const maxDuration = 30;
 
 const EDITABLE = ['title_en', 'title_es', 'category', 'start_date', 'end_date', 'start_time', 'end_time', 'notes', 'status'] as const;
 
 /** PATCH — admin updates any subset of fields (cancel/restore = {status}); then pushes. */
-export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+async function handlePATCH(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const guard = await requireCalendarRole(['admin']);
   if (!guard.ok) return guard.response;
 
@@ -66,7 +67,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
  * DELETE — hard delete. The Google event goes first (404/410 = already gone);
  * any other Google failure is logged and the row is deleted anyway.
  */
-export async function DELETE(_req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+async function handleDELETE(_req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const guard = await requireCalendarRole(['admin']);
   if (!guard.ok) return guard.response;
 
@@ -94,3 +95,6 @@ export async function DELETE(_req: NextRequest, { params }: { params: Promise<{ 
     return NextResponse.json({ error: 'Failed to delete event' }, { status: 500 });
   }
 }
+
+export const PATCH = inChurch(handlePATCH);
+export const DELETE = inChurch(handleDELETE);

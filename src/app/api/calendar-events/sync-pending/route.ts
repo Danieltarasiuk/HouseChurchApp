@@ -6,11 +6,12 @@ import {
   requireCalendarRole,
   syncCalendarEvent,
 } from '@/lib/calendarEvents';
+import { inChurch } from '@/lib/churchRoute';
 
 export const maxDuration = 60;
 
 /** POST — admin pushes every row whose sync_status is 'pending' or 'error'. */
-export async function POST() {
+async function handlePOST() {
   const guard = await requireCalendarRole(['admin']);
   if (!guard.ok) return guard.response;
 
@@ -35,3 +36,5 @@ export async function POST() {
     return NextResponse.json({ error: 'Failed to sync events' }, { status: 500 });
   }
 }
+
+export const POST = inChurch(handlePOST);

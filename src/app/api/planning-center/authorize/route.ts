@@ -1,14 +1,13 @@
 import { NextResponse } from 'next/server';
-import { auth } from '@/lib/auth';
+import { requireViewer } from '@/lib/authz';
 import { newPcoState, pcoStateCookieOptions, PCO_STATE_COOKIE } from '@/lib/pcoOAuthState';
+import { inChurch } from '@/lib/churchRoute';
 
-export async function GET() {
-  const session = await auth();
-  if (!session?.user) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-  }
+async function handleGET() {
+  const { viewer, error: authError } = await requireViewer();
+  if (authError) return authError;
 
-  const userRole = (session.user as { role?: string }).role;
+  const userRole = viewer.role;
   if (userRole !== 'admin') {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
   }
@@ -37,3 +36,5 @@ export async function GET() {
   response.cookies.set(PCO_STATE_COOKIE, state, pcoStateCookieOptions(baseUrl));
   return response;
 }
+
+export const GET = inChurch(handleGET);

@@ -5,7 +5,8 @@ import { useSession } from 'next-auth/react';
 import { useLang } from '@/context/LangContext';
 import { localeFor } from '@/lib/formatDate';
 import { NoAccess } from '@/components/NoAccess';
-import { todayInChurchTz } from '@/lib/churchTime';
+import { todayInChurchTz, DEFAULT_TIME_ZONE } from '@/lib/churchTime';
+import { useChurch } from '@/context/ChurchContext';
 import { PASTORAL_TOPICS } from '@/data/pastoral-topics';
 import ScriptureModal from '@/components/ScriptureModal';
 import { X, Lock, ChevronDown, ChevronRight, Pencil, Trash2 } from 'lucide-react';
@@ -118,12 +119,12 @@ function cellColor(dateStr: string | null, hasAnyMeeting: boolean): string {
 
 function topicLabel(key: string, lang: string): string {
   const topic = PASTORAL_TOPICS.find(t => t.key === key);
-  return topic ? (lang === 'es' ? topic.label.es : topic.label.en) : key;
+  return topic ? (lang === 'es' ? topic.label.es : topic.label.en) : key; // tokens filled by the caller
 }
 
 /* ---------- Component ---------- */
 export default function PastoralPage() {
-  const { language: lang, t } = useLang();
+  const { language: lang, t, label } = useLang();
   const { data: session } = useSession();
   const userId = session?.user?.id;
   const userRole = (session?.user as { role?: string })?.role;
@@ -151,7 +152,8 @@ export default function PastoralPage() {
   // Meeting form
   const [showMeetingForm, setShowMeetingForm] = useState(false);
   const [meetingTopic, setMeetingTopic] = useState('');
-  const [meetingDate, setMeetingDate] = useState(todayInChurchTz);
+  const churchTz = useChurch().church?.timezone ?? DEFAULT_TIME_ZONE;
+  const [meetingDate, setMeetingDate] = useState(() => todayInChurchTz(churchTz));
   const [meetingNotes, setMeetingNotes] = useState('');
   const [savingMeeting, setSavingMeeting] = useState(false);
 
@@ -264,7 +266,7 @@ export default function PastoralPage() {
         setShowMeetingForm(false);
         setMeetingTopic('');
         setMeetingNotes('');
-        setMeetingDate(todayInChurchTz());
+        setMeetingDate(todayInChurchTz(churchTz));
         loadMembers(groupFilter || undefined);
       }
     } finally { setSavingMeeting(false); }
@@ -431,8 +433,8 @@ export default function PastoralPage() {
                   <th className="pastoral-name-col">{t('common.name')}</th>
                   <th>{t('pastoral.lastContacted')}</th>
                   {PASTORAL_TOPICS.map(tp => (
-                    <th key={tp.key} title={lang === 'es' ? tp.label.es : tp.label.en}>
-                      {(lang === 'es' ? tp.label.es : tp.label.en).split(' ').slice(0, 2).join(' ')}
+                    <th key={tp.key} title={label(lang === 'es' ? tp.label.es : tp.label.en)}>
+                      {label(lang === 'es' ? tp.label.es : tp.label.en).split(' ').slice(0, 2).join(' ')}
                     </th>
                   ))}
                 </tr>
@@ -484,7 +486,7 @@ export default function PastoralPage() {
                     {PASTORAL_TOPICS.map(tp => (
                       <span
                         key={tp.key}
-                        title={lang === 'es' ? tp.label.es : tp.label.en}
+                        title={label(lang === 'es' ? tp.label.es : tp.label.en)}
                         style={{
                           width: '12px', height: '12px', borderRadius: '50%',
                           background: cellColor(m.last_meetings[tp.key] || null, hasAny),
@@ -676,7 +678,7 @@ export default function PastoralPage() {
                         <select className="form-select" value={meetingTopic} onChange={e => setMeetingTopic(e.target.value)}>
                           <option value="">{t('pastoral.selectTopic')}</option>
                           {PASTORAL_TOPICS.map(tp => (
-                            <option key={tp.key} value={tp.key}>{lang === 'es' ? tp.label.es : tp.label.en}</option>
+                            <option key={tp.key} value={tp.key}>{label(lang === 'es' ? tp.label.es : tp.label.en)}</option>
                           ))}
                         </select>
                       </div>
@@ -689,7 +691,7 @@ export default function PastoralPage() {
                           <p style={{ fontWeight: 600, marginBottom: '4px' }}>{t('pastoral.helperQuestions')}</p>
                           <ul style={{ paddingLeft: '16px', color: 'var(--text-secondary)', margin: '0 0 8px' }}>
                             {(lang === 'es' ? selectedTopic.questions.es : selectedTopic.questions.en).map((q, i) => (
-                              <li key={i} style={{ marginBottom: '4px' }}>{q}</li>
+                              <li key={i} style={{ marginBottom: '4px' }}>{label(q)}</li>
                             ))}
                           </ul>
                           <p style={{ fontWeight: 600, marginBottom: '4px' }}>{t('pastoral.suggestedVerses')}</p>
@@ -736,7 +738,7 @@ export default function PastoralPage() {
                             style={{ display: 'flex', alignItems: 'center', gap: '6px', background: 'none', border: 'none', cursor: 'pointer', fontWeight: 600, fontSize: '13px', color: 'var(--text-primary)', padding: '4px 0' }}
                           >
                             {isExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
-                            {topicLabel(key, lang)} ({topicMeetings.length})
+                            {label(topicLabel(key, lang))} ({topicMeetings.length})
                           </button>
                           {isExpanded && topicMeetings.map(mtg => {
                             const isOwn = mtg.pastor_id === userId;

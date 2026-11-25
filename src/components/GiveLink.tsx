@@ -1,5 +1,5 @@
 import React from 'react';
-import { GIVING_URL } from '@/lib/giving';
+import { useChurch } from '@/context/ChurchContext';
 
 /**
  * A link to Church Center giving. Renders nothing when giving is not
@@ -18,10 +18,11 @@ export function GiveLink({
   testId?: string;
   onClick?: () => void;
 }) {
-  if (!GIVING_URL) return null;
+  const givingUrl = useChurch().church?.givingUrl;
+  if (!givingUrl) return null;
   return (
     <a
-      href={GIVING_URL}
+      href={givingUrl}
       target="_blank"
       rel="noopener noreferrer"
       className={className}

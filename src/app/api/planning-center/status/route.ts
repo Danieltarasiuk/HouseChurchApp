@@ -2,13 +2,14 @@ import { NextResponse } from 'next/server';
 import { sql } from '@/lib/db';
 import { requireViewer } from '@/lib/authz';
 import { getPcoSyncUserId, getValidPcoToken, verifyPcoToken } from '@/lib/pco';
+import { inChurch } from '@/lib/churchRoute';
 
 /**
  * The Planning Center connection the sync actually uses (the cron's token,
  * see getPcoSyncUserId), so every admin sees the real state, plus whose
  * connection it is. Admins only: it names an admin.
  */
-export async function GET() {
+async function handleGET() {
   const { error } = await requireViewer({ roles: ['admin'] });
   if (error) return error;
 
@@ -36,3 +37,5 @@ export async function GET() {
     return NextResponse.json({ connected: false, reason: 'pco_unavailable' });
   }
 }
+
+export const GET = inChurch(handleGET);

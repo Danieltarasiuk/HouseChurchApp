@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { sql } from '@/lib/db';
+import { sql, currentChurch } from '@/lib/db';
 import { monthsAgoInChurchTz } from '@/lib/churchTime';
 import { requireViewer, forbidden, leadsGroup, leaderGroupScope, LEADER_ROLES } from '@/lib/authz';
+import { inChurch } from '@/lib/churchRoute';
 
 /** Normalize a Postgres DATE value (Date object or ISO string) to 'YYYY-MM-DD' */
 function toDateStr(v: unknown): string {
@@ -10,7 +11,7 @@ function toDateStr(v: unknown): string {
 
 const VALID_MONTHS = [1, 2, 3, 4];
 
-export async function GET(req: NextRequest) {
+async function handleGET(req: NextRequest) {
   const { viewer, error } = await requireViewer({ roles: LEADER_ROLES });
   if (error) return error;
   // null = all groups (admin); a pastor gets exactly their own.
@@ -30,7 +31,7 @@ export async function GET(req: NextRequest) {
 
   // Start of the window: N months before today in the church's calendar
   // (the UTC date is already tomorrow on Sunday evenings in Miami).
-  const startDate = monthsAgoInChurchTz(months);
+  const startDate = monthsAgoInChurchTz(months, currentChurch().timezone);
 
   try {
     const sessionRows = await sql(
@@ -78,3 +79,5 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: 'Failed to load attendance history' }, { status: 500 });
   }
 }
+
+export const GET = inChurch(handleGET);

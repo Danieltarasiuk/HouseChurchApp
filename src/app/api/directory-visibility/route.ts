@@ -1,10 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { sql } from '@/lib/db';
+import { sql, currentChurchId } from '@/lib/db';
 import { requireViewer, forbidden, isAdmin, leadsGroup, type Viewer } from '@/lib/authz';
 import {
   DIRECTORY_FIELDS, isField, isLevel, isScope, layerView, loadVisibilitySettings,
   type VisibilityScope,
 } from '@/lib/directory';
+import { inChurch } from '@/lib/churchRoute';
 
 /**
  * One layer of the member directory visibility settings.
@@ -32,7 +33,8 @@ async function resolveTarget(
   id: string | null
 ): Promise<{ target: Target } | { error: NextResponse }> {
   if (scope === 'church') {
-    return isAdmin(viewer) ? { target: { scopeId: null, groupId: null, memberId: null } } : { error: forbidden() };
+    // The church-wide layer's scope_id is the church's own id.
+    return isAdmin(viewer) ? { target: { scopeId: currentChurchId(), groupId: null, memberId: null } } : { error: forbidden() };
   }
   if (scope === 'member_self') {
     if (!viewer.memberId) {
@@ -65,7 +67,7 @@ async function describe(scope: VisibilityScope, target: Target) {
   return { scope, id: target.scopeId, fields };
 }
 
-export async function GET(req: NextRequest) {
+async function handleGET(req: NextRequest) {
   const { viewer, error } = await requireViewer();
   if (error) return error;
 
@@ -77,7 +79,7 @@ export async function GET(req: NextRequest) {
   return NextResponse.json(await describe(scope, r.target));
 }
 
-export async function PUT(req: NextRequest) {
+async function handlePUT(req: NextRequest) {
   const { viewer, error } = await requireViewer();
   if (error) return error;
 
@@ -97,18 +99,25 @@ export async function PUT(req: NextRequest) {
   const { scopeId } = r.target;
 
   if (level === null) {
+    // The church layer is one row per field in this church (row-level
+    // security); before migration 003 an older row may still have scope_id NULL.
     await sql(
-      'DELETE FROM directory_visibility WHERE scope = $1 AND scope_id IS NOT DISTINCT FROM $2::uuid AND field = $3',
+      scope === 'church'
+        ? "DELETE FROM directory_visibility WHERE scope = 'church' AND field = $3 AND ($2::uuid IS NOT NULL OR $1 = 'church')"
+        : 'DELETE FROM directory_visibility WHERE scope = $1 AND scope_id = $2::uuid AND field = $3',
       [scope, scopeId, field]
     );
   } else {
     await sql(
-      `INSERT INTO directory_visibility (scope, scope_id, field, level, updated_by, updated_at)
-       VALUES ($1, $2::uuid, $3, $4, $5, now())
-       ON CONFLICT (scope, scope_id, field)
+      `INSERT INTO directory_visibility (church_id, scope, scope_id, field, level, updated_by, updated_at)
+       VALUES ($6, $1, $2::uuid, $3, $4, $5, now())
+       ON CONFLICT (church_id, scope, scope_id, field)
        DO UPDATE SET level = EXCLUDED.level, updated_by = EXCLUDED.updated_by, updated_at = now()`,
-      [scope, scopeId, field, level, viewer.userId]
+      [scope, scopeId, field, level, viewer.userId, currentChurchId()]
     );
   }
   return NextResponse.json(await describe(scope, r.target));
 }
+
+export const GET = inChurch(handleGET);
+export const PUT = inChurch(handlePUT);

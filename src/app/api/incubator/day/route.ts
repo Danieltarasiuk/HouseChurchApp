@@ -4,6 +4,7 @@ import { requireViewer, forbidden } from '@/lib/authz';
 import { hasIncubatorAccess } from '@/lib/incubatorAccess';
 import { incubatorBodyIndex, incubatorDay } from '@/lib/incubator';
 import { INCUBATOR_BODIES } from '@/data/incubator-bodies';
+import { inChurch } from '@/lib/churchRoute';
 
 /**
  * One day of the Pastor Incubator for the signed-in user: each module's
@@ -12,7 +13,7 @@ import { INCUBATOR_BODIES } from '@/data/incubator-bodies';
  *
  *   GET ?week=<1-5>&day=<1-n>
  */
-export async function GET(req: NextRequest) {
+async function handleGET(req: NextRequest) {
   const { viewer, error } = await requireViewer();
   if (error) return error;
   if (!(await hasIncubatorAccess(viewer))) return forbidden();
@@ -36,3 +37,5 @@ export async function GET(req: NextRequest) {
     }),
   });
 }
+
+export const GET = inChurch(handleGET);

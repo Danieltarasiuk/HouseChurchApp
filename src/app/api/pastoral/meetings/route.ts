@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { sql } from '@/lib/db';
+import { sql, currentChurchId } from '@/lib/db';
 import { requireViewer, forbidden, leadsMemberIn, leaderGroupScope, memberGroups, LEADER_ROLES } from '@/lib/authz';
+import { inChurch } from '@/lib/churchRoute';
 
 /** Normalize a Postgres DATE value (Date object or ISO string) to 'YYYY-MM-DD' */
 function toDateStr(v: unknown): string {
@@ -8,7 +9,7 @@ function toDateStr(v: unknown): string {
   return String(v).split('T')[0];
 }
 
-export async function GET(req: NextRequest) {
+async function handleGET(req: NextRequest) {
   const { viewer, error } = await requireViewer({ roles: LEADER_ROLES });
   if (error) return error;
 
@@ -71,7 +72,7 @@ export async function GET(req: NextRequest) {
   }
 }
 
-export async function POST(req: NextRequest) {
+async function handlePOST(req: NextRequest) {
   const { viewer, error } = await requireViewer({ roles: LEADER_ROLES });
   if (error) return error;
 
@@ -86,10 +87,10 @@ export async function POST(req: NextRequest) {
     if (!hcs.has(String(member_id)) || !leadsMemberIn(viewer, hcs.get(String(member_id)))) return forbidden();
 
     const result = await sql(
-      `INSERT INTO pastoral_meetings (pastor_id, member_id, topic_key, meeting_date, notes)
-       VALUES ($1, $2, $3, $4, $5)
+      `INSERT INTO pastoral_meetings (church_id, pastor_id, member_id, topic_key, meeting_date, notes)
+       VALUES ($6, $1, $2, $3, $4, $5)
        RETURNING id, pastor_id, member_id, topic_key, meeting_date, notes, created_at`,
-      [viewer.userId, member_id, topic_key, meeting_date, notes || null]
+      [viewer.userId, member_id, topic_key, meeting_date, notes || null, currentChurchId()]
     );
 
     const meeting = { ...result[0], meeting_date: toDateStr(result[0].meeting_date) };
@@ -99,3 +100,6 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Failed to create meeting' }, { status: 500 });
   }
 }
+
+export const GET = inChurch(handleGET);
+export const POST = inChurch(handlePOST);

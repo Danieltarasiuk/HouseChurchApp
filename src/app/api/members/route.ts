@@ -1,8 +1,9 @@
 import { NextResponse } from 'next/server';
-import { sql } from '@/lib/db';
+import { sql, currentChurch } from '@/lib/db';
 import { requireViewer } from '@/lib/authz';
 import { loadVisibilitySettings, redactMember } from '@/lib/directory';
 import { todayInChurchTz } from '@/lib/churchTime';
+import { inChurch } from '@/lib/churchRoute';
 
 /**
  * The member directory. Every signed-in member gets every active member's
@@ -10,7 +11,7 @@ import { todayInChurchTz } from '@/lib/churchTime';
  * by the directory visibility rules (src/lib/directory.ts). Fields the viewer
  * may not see are absent from the response.
  */
-export async function GET() {
+async function handleGET() {
   const { viewer, error } = await requireViewer();
   if (error) return error;
 
@@ -28,17 +29,20 @@ export async function GET() {
                 m.address_street, m.address_city, m.address_state, m.address_zip,
                 m.latitude, m.longitude,
                 m.pco_household_id, m.household_name, m.attendance_note,
-                COALESCE(u.role, m.role, 'member') AS role
+                COALESCE(cm.role, m.role, 'member') AS role
          FROM members m
          LEFT JOIN groups hc ON m.group_id = hc.id
          LEFT JOIN users u ON m.user_id = u.id
+         -- The account's role in this church (the transaction's app.church_id).
+         LEFT JOIN church_memberships cm ON cm.user_id = m.user_id
+           AND cm.church_id = NULLIF(current_setting('app.church_id', true), '')::uuid
          WHERE m.is_active = true
          ORDER BY COALESCE(m.first_name, u.name), m.last_name`
       ),
       loadVisibilitySettings(),
     ]);
 
-    const today = todayInChurchTz();
+    const today = todayInChurchTz(currentChurch().timezone);
     const members = rows.map((m) =>
       redactMember(viewer, m as Record<string, unknown> & { id: string; group_id: string | null }, settings, today)
     );
@@ -49,3 +53,5 @@ export async function GET() {
     return NextResponse.json({ error: 'Failed to load members' }, { status: 500 });
   }
 }
+
+export const GET = inChurch(handleGET);

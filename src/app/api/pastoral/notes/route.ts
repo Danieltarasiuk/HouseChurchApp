@@ -1,14 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { auth } from '@/lib/auth';
-import { sql } from '@/lib/db';
+import { requireViewer } from '@/lib/authz';
+import { sql, currentChurchId } from '@/lib/db';
+import { inChurch } from '@/lib/churchRoute';
 
-export async function GET(req: NextRequest) {
-  const session = await auth();
-  if (!session?.user?.id) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-  }
+async function handleGET(req: NextRequest) {
+  const { viewer, error: authError } = await requireViewer();
+  if (authError) return authError;
 
-  const userRole = (session.user as { role?: string }).role;
+  const userRole = viewer.role;
   if (userRole !== 'admin' && userRole !== 'group_leader') {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
   }
@@ -25,7 +24,7 @@ export async function GET(req: NextRequest) {
        FROM pastoral_notes
        WHERE pastor_id = $1 AND member_id = $2
        ORDER BY updated_at DESC`,
-      [session.user.id, memberId]
+      [viewer.userId, memberId]
     );
 
     return NextResponse.json({ notes });
@@ -35,13 +34,11 @@ export async function GET(req: NextRequest) {
   }
 }
 
-export async function POST(req: NextRequest) {
-  const session = await auth();
-  if (!session?.user?.id) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-  }
+async function handlePOST(req: NextRequest) {
+  const { viewer, error: authError } = await requireViewer();
+  if (authError) return authError;
 
-  const userRole = (session.user as { role?: string }).role;
+  const userRole = viewer.role;
   if (userRole !== 'admin' && userRole !== 'group_leader') {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
   }
@@ -52,12 +49,15 @@ export async function POST(req: NextRequest) {
     if (!member_id || !content?.trim()) {
       return NextResponse.json({ error: 'member_id and content are required' }, { status: 400 });
     }
+    // The member must be in this church (row-level security hides the rest).
+    const member = await sql('SELECT 1 FROM members WHERE id::text = $1', [String(member_id)]);
+    if (member.length === 0) return NextResponse.json({ error: 'Member not found' }, { status: 404 });
 
     const result = await sql(
-      `INSERT INTO pastoral_notes (pastor_id, member_id, content)
-       VALUES ($1, $2, $3)
+      `INSERT INTO pastoral_notes (church_id, pastor_id, member_id, content)
+       VALUES ($4, $1, $2, $3)
        RETURNING id, content, created_at, updated_at`,
-      [session.user.id, member_id, content.trim()]
+      [viewer.userId, member_id, content.trim(), currentChurchId()]
     );
 
     return NextResponse.json({ note: result[0] });
@@ -66,3 +66,6 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Failed to create note' }, { status: 500 });
   }
 }
+
+export const GET = inChurch(handleGET);
+export const POST = inChurch(handlePOST);

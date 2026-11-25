@@ -2,23 +2,33 @@ import NextAuth from 'next-auth';
 import Credentials from 'next-auth/providers/credentials';
 import Google from 'next-auth/providers/google';
 import bcryptjs from 'bcryptjs';
-import { sql } from '@/lib/db';
 import { authConfig } from '@/lib/auth.config';
 import { isProtectedPath } from '@/lib/protected-paths';
 import { googleSignIn } from '@/lib/memberLink';
+import { systemFindLoginUser, systemListMemberships, systemUserAccess } from '@/lib/system';
+import { pickChurch, readChurchCookie } from '@/lib/currentChurch';
 
 /**
- * How long a role cached in the JWT is trusted before it is re-read from the
- * users table. The jwt callback runs on every auth() call — several per page
- * load — so reading per request would add a database round trip to nearly
- * every response for a value that changes rarely. Five minutes bounds how long
- * a promotion or demotion can lag; previously a stale role persisted until the
- * user signed out, so this only narrows the window.
+ * How long the memberships cached in the JWT are trusted before they are
+ * re-read. They only shape the UI (which church, which role to show); every
+ * API route re-reads the role from the database (authz.ts). The jwt callback
+ * runs on every auth() call, so reading per request would add a database
+ * round trip to nearly every response for a value that changes rarely.
  */
-const ROLE_TTL_MS = 5 * 60 * 1000;
+const MEMBERSHIPS_TTL_MS = 5 * 60 * 1000;
 
-/** users.role values (kept in step with Role in authz.ts, which imports this file). */
-const KNOWN_ROLES = ['admin', 'group_leader', 'member'];
+/** Compact membership in the token: church, role, status. */
+type TokenMembership = { c: string; r: 'admin' | 'group_leader' | 'member'; s: 'active' | 'pending' };
+
+async function loadAccess(userId: string) {
+  const access = await systemUserAccess(userId);
+  if (!access) return null;
+  const memberships = await systemListMemberships(userId);
+  return {
+    isPlatformAdmin: access.isPlatformAdmin,
+    memberships: memberships.map((m): TokenMembership => ({ c: m.churchId, r: m.role, s: m.status })),
+  };
+}
 
 export const { handlers, auth, signIn, signOut } = NextAuth({
   ...authConfig,
@@ -36,35 +46,14 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         const email = (credentials.email as string).toLowerCase().trim();
         const password = credentials.password as string;
 
-        const rows = await sql(
-          'SELECT id, email, password_hash, name, role, status FROM users WHERE email = $1',
-          [email]
-        );
-
-        if (rows.length === 0) {
-          return null;
-        }
-
-        const user = rows[0];
-
+        const user = await systemFindLoginUser(email);
         // Google-only users have no password — reject credential login
-        if (!user.password_hash) {
-          return null;
-        }
+        if (!user || !user.password_hash) return null;
 
         const passwordMatch = await bcryptjs.compare(password, user.password_hash);
+        if (!passwordMatch) return null;
 
-        if (!passwordMatch) {
-          return null;
-        }
-
-        return {
-          id: user.id,
-          email: user.email,
-          name: user.name,
-          role: user.role,
-          status: user.status,
-        };
+        return { id: user.id, email: user.email, name: user.name };
       },
     }),
   ],
@@ -86,10 +75,8 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         const email = user.email.toLowerCase().trim();
 
         try {
-          const account = await googleSignIn(email, user.name);
-          user.id = account.id;
-          (user as { role?: string }).role = account.role;
-          (user as { status?: string }).status = account.status;
+          const signedIn = await googleSignIn(email, user.name);
+          user.id = signedIn.id;
         } catch (error) {
           console.error('Google sign-in error:', error);
           return false;
@@ -99,52 +86,56 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
     },
     async jwt({ token, user, trigger }) {
       // Sign-in: seed the token from the freshly authenticated user.
-      if (user) {
-        token.role = (user as { role?: string }).role;
-        token.status = (user as { status?: string }).status ?? 'active';
-        token.id = user.id;
-        token.roleCheckedAt = Date.now();
-        return token;
-      }
+      if (user) token.id = user.id;
 
       // Nothing to re-check against (shouldn't happen for a valid session).
       if (!token.id) return token;
 
-      const checkedAt = typeof token.roleCheckedAt === 'number' ? token.roleCheckedAt : 0;
-      // A role this code no longer knows (a token issued before a role was
-      // renamed, e.g. migration 001) is re-read at once instead of after the TTL.
-      const isKnownRole = typeof token.role === 'string' && KNOWN_ROLES.includes(token.role);
-      const isStale = !isKnownRole || Date.now() - checkedAt > ROLE_TTL_MS;
-
+      const checkedAt = typeof token.accessCheckedAt === 'number' ? token.accessCheckedAt : 0;
+      const isStale = user || !Array.isArray(token.memberships) || Date.now() - checkedAt > MEMBERSHIPS_TTL_MS;
       // `update` lets a client force a refresh via useSession().update().
       if (!isStale && trigger !== 'update') return token;
 
       try {
-        const rows = await sql('SELECT role, status FROM users WHERE id = $1', [token.id]);
-
-        if (rows.length === 0) {
-          // The account no longer exists — end the session rather than keep
-          // honouring a cached role for a deleted user.
-          return null;
-        }
-
-        token.role = rows[0].role;
-        token.status = rows[0].status;
-        token.roleCheckedAt = Date.now();
+        const access = await loadAccess(token.id as string);
+        // The account no longer exists — end the session rather than keep
+        // honouring cached memberships for a deleted user.
+        if (!access) return null;
+        token.isPlatformAdmin = access.isPlatformAdmin;
+        token.memberships = access.memberships;
+        // For the middleware: an account with nothing but pending memberships
+        // only sees the waiting screen.
+        token.status = access.isPlatformAdmin || access.memberships.some((m) => m.s === 'active') ? 'active' : 'pending';
+        token.accessCheckedAt = Date.now();
       } catch (error) {
         // A transient database problem must not sign everyone out. Keep the
-        // cached role and leave roleCheckedAt untouched so the next request
-        // retries immediately.
-        console.error('Role refresh failed for user', token.id, error);
+        // cached values and leave accessCheckedAt untouched so the next
+        // request retries immediately.
+        console.error('Membership refresh failed for user', token.id, error);
       }
 
       return token;
     },
     async session({ session, token }) {
       if (session.user) {
-        (session.user as { role?: string }).role = token.role as string;
-        (session.user as { status?: string }).status = (token.status as string) ?? 'active';
-        session.user.id = token.id as string;
+        // Role and status in the church this request is in, for the UI.
+        const memberships = (Array.isArray(token.memberships) ? token.memberships : []) as TokenMembership[];
+        const isPlatformAdmin = token.isPlatformAdmin === true;
+        const requested = await readChurchCookie();
+        const picked = pickChurch({
+          memberships: memberships.map((m) => ({ churchId: m.c, role: m.r, status: m.s })),
+          isPlatformAdmin,
+          // A platform admin may open a church they do not belong to; the
+          // server checks that it exists when the request runs there.
+          churchIds: isPlatformAdmin && requested ? [requested] : [],
+          requested,
+        });
+        const u = session.user as { id?: string; role?: string; status?: string; churchId?: string | null; isPlatformAdmin?: boolean };
+        u.id = token.id as string;
+        u.role = picked?.status === 'active' ? picked.role : 'member';
+        u.status = picked ? picked.status : (token.status as string) ?? 'pending';
+        u.churchId = picked?.churchId ?? null;
+        u.isPlatformAdmin = isPlatformAdmin;
       }
       return session;
     },

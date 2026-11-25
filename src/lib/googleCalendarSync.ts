@@ -1,5 +1,6 @@
 /**
- * One-way push from calendar_events to the CityChurch Miami Google Calendar.
+ * One-way push from calendar_events to the church's Google Calendar
+ * (churches.google_calendar_id). A church without one is never pushed.
  *
  * The app is the master: nothing is read back from Google, so edits made
  * directly in Google are overwritten the next time the app pushes that event.
@@ -10,14 +11,12 @@
  * Env:
  *   GOOGLE_SERVICE_ACCOUNT_EMAIL
  *   GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY  (literal "\n" sequences are converted)
- *   GOOGLE_CALENDAR_ID
+ * (The calendar id is per church, in the churches row.)
  */
 import { google, calendar_v3 } from 'googleapis';
 import { CALENDAR_CATEGORIES, isCalendarCategory } from './calendarCategories';
 import { addDaysISO, toHHMM } from './calendarDates';
-import { CHURCH_TIME_ZONE } from './churchTime';
-
-export const CALENDAR_TIME_ZONE = CHURCH_TIME_ZONE;
+import { currentChurch } from './db';
 
 /** The fields of a calendar_events row that matter to Google. */
 export interface PushableRow {
@@ -40,8 +39,15 @@ function requireEnv(name: string): string {
   return v;
 }
 
-export function getCalendarId(): string {
-  return requireEnv('GOOGLE_CALENDAR_ID');
+/** The current church's Google Calendar, or null when it has none (no push). */
+export function getCalendarId(): string | null {
+  return currentChurch().google_calendar_id || null;
+}
+
+function requireCalendarId(): string {
+  const id = getCalendarId();
+  if (!id) throw new Error('This church has no Google Calendar configured');
+  return id;
 }
 
 export function getCalendarClient(): calendar_v3.Calendar {
@@ -79,7 +85,7 @@ function isGone(err: unknown): boolean {
 }
 
 /** Build the Google event body for a row. Never includes `notes`. */
-export function toGoogleEvent(row: PushableRow): calendar_v3.Schema$Event {
+export function toGoogleEvent(row: PushableRow, timeZone: string = currentChurch().timezone): calendar_v3.Schema$Event {
   const category = isCalendarCategory(row.category) ? CALENDAR_CATEGORIES[row.category] : null;
   const cancelled = row.status === 'cancelled';
   const startTime = toHHMM(row.start_time);
@@ -90,8 +96,8 @@ export function toGoogleEvent(row: PushableRow): calendar_v3.Schema$Event {
   const timing: Pick<calendar_v3.Schema$Event, 'start' | 'end'> =
     startTime && endTime
       ? {
-          start: { dateTime: `${row.start_date}T${startTime}:00`, timeZone: CALENDAR_TIME_ZONE, date: null },
-          end: { dateTime: `${row.end_date}T${endTime}:00`, timeZone: CALENDAR_TIME_ZONE, date: null },
+          start: { dateTime: `${row.start_date}T${startTime}:00`, timeZone, date: null },
+          end: { dateTime: `${row.end_date}T${endTime}:00`, timeZone, date: null },
         }
       : {
           // Google's all-day end date is exclusive; ours is inclusive.
@@ -119,7 +125,7 @@ export function toGoogleEvent(row: PushableRow): calendar_v3.Schema$Event {
  */
 export async function pushEvent(row: PushableRow): Promise<string> {
   const calendar = getCalendarClient();
-  const calendarId = getCalendarId();
+  const calendarId = requireCalendarId();
   const body = toGoogleEvent(row);
 
   if (row.google_event_id) {
@@ -141,7 +147,7 @@ export async function pushEvent(row: PushableRow): Promise<string> {
 export async function deleteGoogleEvent(googleEventId: string): Promise<void> {
   const calendar = getCalendarClient();
   try {
-    await calendar.events.delete({ calendarId: getCalendarId(), eventId: googleEventId });
+    await calendar.events.delete({ calendarId: requireCalendarId(), eventId: googleEventId });
   } catch (err) {
     if (isGone(err)) return;
     throw err;

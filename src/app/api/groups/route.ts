@@ -1,10 +1,21 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { auth } from '@/lib/auth';
-import { sql } from '@/lib/db';
+import { sql, currentChurchId } from '@/lib/db';
 import { requireViewer } from '@/lib/authz';
 import { geocodeGroupAsync } from '@/lib/geocode';
+import { inChurch } from '@/lib/churchRoute';
 
-export async function GET() {
+/**
+ * Pastor, host and trainee must be members of this church: the foreign keys
+ * alone would accept another church's member id.
+ */
+async function leadersInChurch(ids: unknown[]): Promise<boolean> {
+  const given = ids.filter((v): v is string => typeof v === 'string' && v !== '');
+  if (given.length === 0) return true;
+  const found = await sql('SELECT id::text FROM members WHERE id::text = ANY($1::text[])', [given]);
+  return new Set(found.map((r) => r.id)).size === new Set(given).size;
+}
+
+async function handleGET() {
   const { error } = await requireViewer();
   if (error) return error;
 
@@ -45,16 +56,9 @@ export async function GET() {
   }
 }
 
-export async function POST(req: NextRequest) {
-  const session = await auth();
-  if (!session?.user) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-  }
-
-  const userRole = (session.user as { role?: string }).role;
-  if (userRole !== 'admin') {
-    return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
-  }
+async function handlePOST(req: NextRequest) {
+  const { error: authError } = await requireViewer({ roles: ['admin'] });
+  if (authError) return authError;
 
   try {
     const body = await req.json();
@@ -67,17 +71,21 @@ export async function POST(req: NextRequest) {
     if (!name?.trim()) {
       return NextResponse.json({ error: 'Name is required' }, { status: 400 });
     }
+    if (!(await leadersInChurch([pastor_id, host_id, trainee_id]))) {
+      return NextResponse.json({ error: 'Unknown member', reason: 'unknown_member' }, { status: 400 });
+    }
 
     const result = await sql(
-      `INSERT INTO groups (name, description, meeting_day, meeting_time, location,
+      `INSERT INTO groups (church_id, name, description, meeting_day, meeting_time, location,
                                     address_street, address_city, address_state, address_zip,
                                     pastor_id, host_id, trainee_id, campus_name, pco_campus_id, is_active)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, true)
+       VALUES ($15, $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, true)
        RETURNING id`,
       [
         name.trim(), description || null, meeting_day || null, meeting_time || null, location || null,
         address_street || null, address_city || null, address_state || null, address_zip || null,
         pastor_id || null, host_id || null, trainee_id || null, campus_name || null, pco_campus_id || null,
+        currentChurchId(),
       ]
     );
 
@@ -106,16 +114,9 @@ export async function POST(req: NextRequest) {
   }
 }
 
-export async function PATCH(req: NextRequest) {
-  const session = await auth();
-  if (!session?.user) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-  }
-
-  const userRole = (session.user as { role?: string }).role;
-  if (userRole !== 'admin') {
-    return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
-  }
+async function handlePATCH(req: NextRequest) {
+  const { error: authError } = await requireViewer({ roles: ['admin'] });
+  if (authError) return authError;
 
   try {
     const body = await req.json();
@@ -128,14 +129,18 @@ export async function PATCH(req: NextRequest) {
     if (!id) {
       return NextResponse.json({ error: 'ID is required' }, { status: 400 });
     }
+    if (!(await leadersInChurch([pastor_id, host_id, trainee_id]))) {
+      return NextResponse.json({ error: 'Unknown member', reason: 'unknown_member' }, { status: 400 });
+    }
 
-    await sql(
+    const updated = await sql(
       `UPDATE groups SET
         name = $1, description = $2, meeting_day = $3, meeting_time = $4, location = $5,
         address_street = $6, address_city = $7, address_state = $8, address_zip = $9,
         pastor_id = $10, host_id = $11, trainee_id = $12, campus_name = $13, pco_campus_id = $14,
         latitude = NULL, longitude = NULL
-       WHERE id = $15`,
+       WHERE id = $15
+       RETURNING id`,
       [
         name?.trim() || null, description || null, meeting_day || null, meeting_time || null, location || null,
         address_street || null, address_city || null, address_state || null, address_zip || null,
@@ -143,6 +148,8 @@ export async function PATCH(req: NextRequest) {
         id,
       ]
     );
+    // Row-level security: another church's group is simply not found.
+    if (updated.length === 0) return NextResponse.json({ error: 'Not found' }, { status: 404 });
 
     // Fire-and-forget geocode the updated address
     if (address_street || address_city) {
@@ -155,3 +162,7 @@ export async function PATCH(req: NextRequest) {
     return NextResponse.json({ error: 'Failed to update group' }, { status: 500 });
   }
 }
+
+export const GET = inChurch(handleGET);
+export const POST = inChurch(handlePOST);
+export const PATCH = inChurch(handlePATCH);

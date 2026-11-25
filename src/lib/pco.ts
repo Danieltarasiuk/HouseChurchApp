@@ -1,4 +1,4 @@
-import { sql, withTransaction } from '@/lib/db';
+import { sql, withTransaction, withChurch, currentChurch, currentChurchId } from '@/lib/db';
 import { geocodeMembersWithoutCoords, geocodeGroupsWithoutCoords } from '@/lib/geocode';
 import { isoDateInChurchTz } from '@/lib/churchTime';
 
@@ -24,24 +24,27 @@ export const PCO_ERROR_MESSAGES: Record<PcoErrorReason, string> = {
 };
 
 /**
- * Picks the user whose stored token the scheduled sync should run as.
+ * Picks the user whose stored token the current church's sync runs as.
  * Cron has no session, so it borrows the connected admin's token —
- * preferring an admin when several users have connected.
+ * preferring an admin of this church when several users have connected.
+ * (pco_tokens is per church: row-level security shows only this church's.)
  */
 export async function getPcoSyncUserId(): Promise<string | null> {
   const rows = await sql(
     `SELECT t.user_id
      FROM pco_tokens t
-     JOIN users u ON u.id = t.user_id
-     ORDER BY (u.role = 'admin') DESC, t.created_at DESC
-     LIMIT 1`
+     LEFT JOIN church_memberships cm ON cm.user_id = t.user_id AND cm.church_id = $1
+     ORDER BY (cm.role = 'admin') DESC NULLS LAST, t.created_at DESC
+     LIMIT 1`,
+    [currentChurchId()]
   );
   return rows.length > 0 ? rows[0].user_id : null;
 }
 
 /**
- * Records a sync attempt. Never throws — a logging failure must not
- * turn an otherwise successful sync into an error.
+ * Records a sync attempt for the current church, in a transaction of its own
+ * so it is kept even if the surrounding request fails. Never throws — a
+ * logging failure must not turn an otherwise successful sync into an error.
  */
 export async function logSync(
   source: 'cron' | 'manual',
@@ -50,10 +53,11 @@ export async function logSync(
   syncedCount: number | null
 ): Promise<void> {
   try {
-    await sql(
-      'INSERT INTO sync_log (source, success, detail, synced_count) VALUES ($1, $2, $3, $4)',
-      [source, success, detail, syncedCount]
-    );
+    const churchId = currentChurchId();
+    await withChurch(churchId, () => sql(
+      'INSERT INTO sync_log (church_id, source, success, detail, synced_count) VALUES ($5, $1, $2, $3, $4)',
+      [source, success, detail, syncedCount, churchId]
+    ), { separate: true });
   } catch (err) {
     console.error('Failed to write sync_log row:', err);
   }
@@ -622,6 +626,7 @@ export interface PcoSyncOptions {
  */
 export async function runPcoSync(token: string, opts: PcoSyncOptions = {}): Promise<PcoSyncResult> {
   const warnings: SyncWarning[] = [];
+  const churchId = currentChurchId();
 
   // 1. Fetch from PCO. None of these throw.
   const [campusesRes, peopleRes, householdsRes] = await Promise.all([
@@ -629,6 +634,29 @@ export async function runPcoSync(token: string, opts: PcoSyncOptions = {}): Prom
     fetchAllPeople(token),
     fetchHouseholds(token),
   ]);
+
+  // Steps 2–3 write in one transaction of their own (all or nothing), and
+  // geocoding (slow, network-bound) in another, so neither holds the
+  // caller's transaction or its locks open for the whole sync.
+  const written = await withChurch(churchId, () => writeSyncedData(churchId, warnings, campusesRes, peopleRes, householdsRes), { separate: true });
+  const geo = await withChurch(churchId, () => geocodeAfterSync(warnings, opts), { separate: true });
+
+  return {
+    status: !peopleRes.ok ? 'failed' : warnings.length ? 'warnings' : 'ok',
+    warnings,
+    ...written,
+    ...geo,
+    campuses: campusesRes.ok ? campusesRes.value.size : 0,
+  };
+}
+
+async function writeSyncedData(
+  churchId: string,
+  warnings: SyncWarning[],
+  campusesRes: Awaited<ReturnType<typeof fetchCampuses>>,
+  peopleRes: Awaited<ReturnType<typeof fetchAllPeople>>,
+  householdsRes: Awaited<ReturnType<typeof fetchHouseholds>>
+) {
 
   // 2. Campuses → groups
   const campusToGroupId = new Map<string, string>();
@@ -651,10 +679,10 @@ export async function runPcoSync(token: string, opts: PcoSyncOptions = {}): Prom
         );
       } else {
         const result = await sql(
-          `INSERT INTO groups (name, pco_campus_id, campus_name,
+          `INSERT INTO groups (church_id, name, pco_campus_id, campus_name,
            address_street, address_city, address_state, address_zip, is_active)
-           VALUES ($1, $2, $1, $3, $4, $5, $6, true) RETURNING id`,
-          [campusInfo.name, pcoId, campusInfo.street || null, campusInfo.city || null, campusInfo.state || null, campusInfo.zip || null]
+           VALUES ($7, $1, $2, $1, $3, $4, $5, $6, true) RETURNING id`,
+          [campusInfo.name, pcoId, campusInfo.street || null, campusInfo.city || null, campusInfo.state || null, campusInfo.zip || null, churchId]
         );
         campusToGroupId.set(pcoId, result[0].id);
       }
@@ -715,12 +743,12 @@ export async function runPcoSync(token: string, opts: PcoSyncOptions = {}): Prom
       //      differs from the stored one, clear the coordinates so the
       //      geocoding step looks the new address up.
       const result = await sql(
-        `INSERT INTO members (first_name, last_name, email, phone, group_id,
+        `INSERT INTO members (church_id, first_name, last_name, email, phone, group_id,
                               gender, date_of_birth,
                               address_street, address_city, address_state, address_zip,
                               pco_id, campus_pco_id, pco_household_id, household_name, is_active)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, true)
-         ON CONFLICT (pco_id) DO UPDATE SET
+         VALUES ($18, $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, true)
+         ON CONFLICT (church_id, pco_id) DO UPDATE SET
            first_name = EXCLUDED.first_name,
            last_name = EXCLUDED.last_name,
            email = COALESCE(NULLIF(EXCLUDED.email, ''), members.email),
@@ -749,6 +777,7 @@ export async function runPcoSync(token: string, opts: PcoSyncOptions = {}): Prom
           household?.householdId ?? null, household?.householdName || null,
           householdsRes.ok,
           campusesRes.ok,
+          churchId,
         ]
       );
 
@@ -771,6 +800,10 @@ export async function runPcoSync(token: string, opts: PcoSyncOptions = {}): Prom
     }
   }
 
+  return { imported, skipped, archived, total, groupsDeactivated };
+}
+
+async function geocodeAfterSync(warnings: SyncWarning[], opts: PcoSyncOptions) {
   // 4. Geocode groups, then members (the slow step: Nominatim allows
   //    1 req/sec, so it runs last against a deadline; leftovers roll over).
   let groupsGeocoded = 0;
@@ -789,18 +822,7 @@ export async function runPcoSync(token: string, opts: PcoSyncOptions = {}): Prom
     warnings.push({ step: 'geocoding', code: 'unexpected', params: { detail: e instanceof Error ? e.message : String(e) } });
   }
 
-  return {
-    status: !peopleRes.ok ? 'failed' : warnings.length ? 'warnings' : 'ok',
-    warnings,
-    imported,
-    skipped,
-    archived,
-    geocoded,
-    groupsGeocoded,
-    total,
-    campuses: campusesRes.ok ? campusesRes.value.size : 0,
-    groupsDeactivated,
-  };
+  return { geocoded, groupsGeocoded };
 }
 
 /** True when the upsert's resulting address differs from the stored one. */
@@ -813,10 +835,10 @@ const ADDRESS_CHANGED = ['street', 'city', 'state', 'zip']
 // ---------------------------------------------------------------------------
 
 /**
- * Name of the PCO Check-Ins event that represents the Sunday service. The one
- * place it lives: it becomes a per-church setting in Phase 1.
+ * Name of the PCO Check-Ins event that represents the Sunday service: the
+ * current church's setting (churches.checkins_event_name, Settings → Church).
  */
-export const SUNDAY_CHECKIN_EVENT_NAME = 'Reunión Dominical Español';
+export const sundayCheckinEventName = (): string | null => currentChurch().checkins_event_name?.trim() || null;
 
 /** Thrown when Check-Ins is unreachable; `status` is the PCO HTTP status. */
 export class PcoCheckInsError extends Error {
@@ -828,7 +850,7 @@ export class PcoCheckInsError extends Error {
 const normalizeName = (s: string) =>
   s.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().trim();
 
-const localDate = (iso: string) => isoDateInChurchTz(new Date(iso)); // YYYY-MM-DD, church local
+const localDate = (iso: string) => isoDateInChurchTz(new Date(iso), currentChurch().timezone); // YYYY-MM-DD, church local
 
 async function pcoGet(token: string, url: string) {
   let res: Response;
@@ -872,8 +894,10 @@ export async function fetchSundayCheckedInPersonIds(
   token: string,
   date: string
 ): Promise<{ eventName: string; personIds: Set<string>; checkerByPerson: Map<string, string> }> {
-  const event = await findCheckInsEvent(token, SUNDAY_CHECKIN_EVENT_NAME);
-  if (!event) throw new PcoCheckInsError(`Check-Ins event "${SUNDAY_CHECKIN_EVENT_NAME}" not found.`, 404);
+  const eventName = sundayCheckinEventName();
+  if (!eventName) throw new PcoCheckInsError('No Check-Ins event name is set for this church.', 404);
+  const event = await findCheckInsEvent(token, eventName);
+  if (!event) throw new PcoCheckInsError(`Check-Ins event "${eventName}" not found.`, 404);
 
   const personIds = new Set<string>();
   const checkerByPerson = new Map<string, string>();

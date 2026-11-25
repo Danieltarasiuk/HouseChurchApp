@@ -23,6 +23,7 @@ import {
 } from 'lucide-react';
 import { useLang } from '@/context/LangContext';
 import { GiveLink } from '@/components/GiveLink';
+import { ChurchSwitcher } from '@/components/ChurchSwitcher';
 
 export function Sidebar() {
   const pathname = usePathname();
@@ -181,6 +182,8 @@ export function Sidebar() {
           <h1>{t('app.title')}</h1>
           <span>{t('app.subtitle')}</span>
         </div>
+
+        <ChurchSwitcher />
 
         <nav className="sidebar-nav">
           {navItems

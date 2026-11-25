@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { sql } from '@/lib/db';
+import { sql, currentChurchId } from '@/lib/db';
 import { isISODate } from '@/lib/calendarDates';
 import {
   CALENDAR_EVENT_COLUMNS,
@@ -9,11 +9,12 @@ import {
   syncCalendarEvent,
   validateCalendarEvent,
 } from '@/lib/calendarEvents';
+import { inChurch } from '@/lib/churchRoute';
 
 export const maxDuration = 30;
 
 /** GET ?from=YYYY-MM-DD&to=YYYY-MM-DD — events overlapping the inclusive range. */
-export async function GET(req: NextRequest) {
+async function handleGET(req: NextRequest) {
   const guard = await requireCalendarRole(['admin', 'group_leader']);
   if (!guard.ok) return guard.response;
 
@@ -38,7 +39,7 @@ export async function GET(req: NextRequest) {
 }
 
 /** POST — admin creates an event; saved first, then pushed to Google. */
-export async function POST(req: NextRequest) {
+async function handlePOST(req: NextRequest) {
   const guard = await requireCalendarRole(['admin']);
   if (!guard.ok) return guard.response;
 
@@ -57,10 +58,10 @@ export async function POST(req: NextRequest) {
   try {
     const rows = await sql(
       `INSERT INTO calendar_events
-         (title_en, title_es, category, start_date, end_date, start_time, end_time, notes, status, created_by)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+         (church_id, title_en, title_es, category, start_date, end_date, start_time, end_time, notes, status, created_by)
+       VALUES ($11, $1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
        RETURNING ${CALENDAR_EVENT_COLUMNS}`,
-      [e.title_en, e.title_es, e.category, e.start_date, e.end_date, e.start_time, e.end_time, e.notes, e.status, guard.userId]
+      [e.title_en, e.title_es, e.category, e.start_date, e.end_date, e.start_time, e.end_time, e.notes, e.status, guard.userId, currentChurchId()]
     );
     row = rows[0] as CalendarEventRow;
   } catch (error) {
@@ -71,3 +72,6 @@ export async function POST(req: NextRequest) {
   const synced = await syncCalendarEvent(row);
   return NextResponse.json({ event: synced }, { status: 201 });
 }
+
+export const GET = inChurch(handleGET);
+export const POST = inChurch(handlePOST);

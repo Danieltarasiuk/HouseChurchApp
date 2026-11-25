@@ -1,14 +1,13 @@
 /**
  * Leadership calendar categories — the single source of truth for labels,
- * FullCalendar colors and Google Calendar colorIds. Client-safe (its only
- * import, the group label, is plain data).
+ * FullCalendar colors and Google Calendar colorIds. Client-safe (no imports).
+ * The 'group' label is a token filled with the current church's group label
+ * (useLang().label).
  *
  * Google colorIds are the fixed event palette:
  * 1 Lavender, 3 Grape, 4 Flamingo, 5 Banana, 6 Tangerine, 7 Peacock,
  * 8 Graphite, 9 Blueberry, 10 Basil, 11 Tomato.
  */
-
-import { GROUP_LABEL } from '@/lib/groupLabel';
 
 export const CALENDAR_CATEGORY_KEYS = [
   'worship_night',
@@ -36,7 +35,7 @@ export interface CalendarCategoryInfo {
 
 export const CALENDAR_CATEGORIES: Record<CalendarCategory, CalendarCategoryInfo> = {
   worship_night:      { en: 'Worship Night',          es: 'Noche de Adoración',              color: '#7c3aed', googleColorId: '3',  informational: false },
-  group:              { en: GROUP_LABEL.en.one,     es: GROUP_LABEL.es.one,              color: '#2563eb', googleColorId: '9',  informational: false },
+  group:              { en: '{Group}',              es: '{Group}',                         color: '#2563eb', googleColorId: '9',  informational: false },
   men_women_marriage: { en: 'Men / Women / Marriage', es: 'Hombres / Mujeres / Matrimonios', color: '#db2777', googleColorId: '4',  informational: false },
   brunch:             { en: 'Brunch',                 es: 'Brunch',                          color: '#ca8a04', googleColorId: '5',  informational: false },
   english_gathering:  { en: 'English Gathering',      es: 'Reunión en Inglés',               color: '#0d9488', googleColorId: '7',  informational: false },

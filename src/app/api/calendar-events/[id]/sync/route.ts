@@ -1,10 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getCalendarEvent, isUUID, requireCalendarRole, syncCalendarEvent } from '@/lib/calendarEvents';
+import { inChurch } from '@/lib/churchRoute';
 
 export const maxDuration = 30;
 
 /** POST — admin retries the Google push for one event. */
-export async function POST(_req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+async function handlePOST(_req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const guard = await requireCalendarRole(['admin']);
   if (!guard.ok) return guard.response;
 
@@ -21,3 +22,5 @@ export async function POST(_req: NextRequest, { params }: { params: Promise<{ id
     return NextResponse.json({ error: 'Failed to sync event' }, { status: 500 });
   }
 }
+
+export const POST = inChurch(handlePOST);

@@ -9,6 +9,7 @@ import esLocale from '@fullcalendar/core/locales/es';
 import type { DatesSetArg, EventClickArg, EventInput, DayHeaderContentArg } from '@fullcalendar/core';
 import { ChevronLeft, ChevronRight, RefreshCw } from 'lucide-react';
 import { useLang } from '@/context/LangContext';
+import { useChurch } from '@/context/ChurchContext';
 import {
   CALENDAR_CATEGORIES,
   CALENDAR_CATEGORY_KEYS,
@@ -45,7 +46,8 @@ export function CalendarNoAccess() {
 }
 
 export function LeadershipCalendar({ role }: { role: 'admin' | 'group_leader' }) {
-  const { language, t } = useLang();
+  const { language, t, label } = useLang();
+  const { church } = useChurch();
   const isAdmin = role === 'admin';
   const calRef = useRef<FullCalendar>(null);
 
@@ -281,7 +283,8 @@ export function LeadershipCalendar({ role }: { role: 'admin' | 'group_leader' })
       <div className="page-header cal-page-header">
         <div>
           <h2>{t('cal.title')}</h2>
-          <p>{isAdmin ? t('cal.sub') : t('cal.subPastor')}</p>
+          {/* Admins are told where changes go, when the church has a Google Calendar. */}
+          <p>{isAdmin && church?.hasGoogleCalendar ? t('cal.sub').replace('{church}', church.name) : t('cal.subPastor')}</p>
         </div>
         {isAdmin && (
           <button className="btn btn-secondary" onClick={runSync} disabled={syncing} data-testid="cal-sync">
@@ -345,7 +348,7 @@ export function LeadershipCalendar({ role }: { role: 'admin' | 'group_leader' })
                 aria-pressed={on}
               >
                 <span className="cal-chip-dot" />
-                {language === 'es' ? cat.es : cat.en}
+                {label(language === 'es' ? cat.es : cat.en)}
               </button>
             );
           })}

@@ -21,17 +21,12 @@ export const authConfig: NextAuthConfig = {
       if (pending && path !== PENDING_PATH) return Response.redirect(new URL(PENDING_PATH, request.nextUrl));
       return true;
     },
-    async jwt({ token, user }) {
-      if (user) {
-        token.role = (user as { role?: string }).role;
-        token.status = (user as { status?: string }).status ?? 'active';
-      }
-      return token;
-    },
+    // The middleware only reads the token the full instance (auth.ts) wrote:
+    // token.status is 'pending' when the account has no active membership in
+    // any church (and is not a platform admin).
     async session({ session, token }) {
       if (session.user) {
-        (session.user as { role?: string }).role = token.role as string;
-        (session.user as { status?: string }).status = (token.status as string) ?? 'active';
+        (session.user as { status?: string }).status = (token.status as string) ?? 'pending';
       }
       return session;
     },

@@ -1,5 +1,5 @@
-import { GROUP_LABEL, withGroupLabel } from '@/lib/groupLabel';
-
+// Text may contain group-label tokens ({Group}, {group}); pages fill them
+// with the current church's label (useLang().label).
 export interface PastoralTopic {
   key: string;
   label: { en: string; es: string };
@@ -30,18 +30,18 @@ export const PASTORAL_TOPICS: PastoralTopic[] = [
   },
   {
     key: 'group',
-    label: { en: GROUP_LABEL.en.one, es: GROUP_LABEL.es.one },
+    label: { en: '{Group}', es: '{Group}' },
     description: {
       en: 'Are they engaged in their smaller community?',
       es: '¿Están involucrados en su comunidad más pequeña?',
     },
     questions: {
       en: [
-        withGroupLabel('Do you feel genuinely known by the people in your {group}?', 'en'),
+        'Do you feel genuinely known by the people in your {group}?',
         'Is there anyone you are growing closer to? Anyone you are concerned about?',
       ],
       es: [
-        withGroupLabel('¿Sientes que las personas en tu {group} te conocen genuinamente?', 'es'),
+        '¿Sientes que las personas en tu {group} te conocen genuinamente?',
         '¿Hay alguien con quien estés creciendo más cerca? ¿Alguien que te preocupe?',
       ],
     },

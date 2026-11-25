@@ -9,6 +9,7 @@ import { CloudDownload, Link as LinkIcon, CheckCircle, Trash2 } from 'lucide-rea
 import type { SyncStatus, SyncWarning } from '@/lib/pco';
 import { NoAccess } from '@/components/NoAccess';
 import { PrivacyControls } from '@/components/PrivacyControls';
+import { ChurchSettings } from '@/components/ChurchSettings';
 import { PendingAccounts, type LinkableMember } from '@/components/PendingAccounts';
 
 const PCO_REASONS = ['not_connected', 'missing_credentials', 'invalid_credentials', 'permission_denied', 'pco_unavailable', 'bad_refresh_response'];
@@ -338,6 +339,9 @@ function SettingsContent() {
           {success}
         </div>
       )}
+
+      {/* This church's name, timezone, language and group label */}
+      <ChurchSettings />
 
       {/* Planning Center Integration */}
       <div className="card card-padded" style={{ marginBottom: '24px' }}>

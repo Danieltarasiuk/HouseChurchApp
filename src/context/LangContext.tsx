@@ -3,11 +3,14 @@
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
 
 import { translate, LANG_COOKIE, isLanguage, type Language } from '@/lib/translations';
+import { DEFAULT_GROUP_LABELS, withGroupLabel, type GroupLabels } from '@/lib/groupLabel';
 
 interface LangContextType {
   language: Language;
   setLanguage: (lang: Language) => void;
   t: (key: string) => string;
+  /** Fills the church's group label into text that is not in the dictionary (topics, categories). */
+  label: (text: string) => string;
 }
 
 const LangContext = createContext<LangContextType | undefined>(undefined);
@@ -23,8 +26,13 @@ function persistLanguage(lang: Language) {
  * Provides the active language. The root layout reads the language cookie
  * and passes it as initialLanguage, so the server renders the right language
  * and <html lang> from the first paint (no English flash for Spanish users).
+ * groupLabels is the current church's word for its groups.
  */
-export function LangProvider({ children, initialLanguage = 'en' }: { children: React.ReactNode; initialLanguage?: Language }) {
+export function LangProvider({
+  children,
+  initialLanguage = 'en',
+  groupLabels = DEFAULT_GROUP_LABELS,
+}: { children: React.ReactNode; initialLanguage?: Language; groupLabels?: GroupLabels }) {
   const [language, setLanguageState] = useState<Language>(initialLanguage);
 
   const setLanguage = useCallback((lang: Language) => {
@@ -45,11 +53,13 @@ export function LangProvider({ children, initialLanguage = 'en' }: { children: R
   }, [initialLanguage]);
 
   const t = useCallback((key: string): string => {
-    return translate(language, key);
-  }, [language]);
+    return translate(language, key, groupLabels);
+  }, [language, groupLabels]);
+
+  const label = useCallback((text: string): string => withGroupLabel(text, language, groupLabels), [language, groupLabels]);
 
   return (
-    <LangContext.Provider value={{ language, setLanguage, t }}>
+    <LangContext.Provider value={{ language, setLanguage, t, label }}>
       {children}
     </LangContext.Provider>
   );

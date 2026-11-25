@@ -10,6 +10,9 @@
  *
  *   npm run backfill:member-links                          # dry run: report only
  *   npm run backfill:member-links -- --apply --host=<host> # write
+ *   ... --church=<slug>                                    # a church other than CityChurch
+ *
+ * Runs inside that church (members are per church; row-level security).
  *
  * Review the dry run first. --apply refuses to run unless --host names the
  * exact host in DATABASE_URL, so the target is always a deliberate choice.
@@ -22,6 +25,7 @@ type Plan = 'link' | 'create' | 'skip_email_taken' | 'needs_admin_approval';
 
 async function main() {
   const apply = process.argv.includes('--apply');
+  const slug = process.argv.find((a) => a.startsWith('--church='))?.slice('--church='.length) ?? 'citychurch';
   const hostArg = process.argv.find((a) => a.startsWith('--host='))?.slice('--host='.length);
 
   const url = process.env.DATABASE_URL;
@@ -36,11 +40,24 @@ async function main() {
   }
 
   // Imported after env is loaded (db.ts reads DATABASE_URL at import).
-  const { sql } = await import('../src/lib/db');
+  const { sql, withChurch } = await import('../src/lib/db');
+  const { systemListChurches } = await import('../src/lib/system');
   const { linkOrCreateMember } = await import('../src/lib/memberLink');
 
+  const church = (await systemListChurches()).find((c) => c.slug === slug);
+  if (!church) throw new Error(`No church with slug "${slug}"`);
+  console.log(`church: ${church.name}`);
+  await withChurch(church.id, () => backfill(sql, linkOrCreateMember, church.id, apply));
+}
+
+async function backfill(
+  sql: typeof import('../src/lib/db').sql,
+  linkOrCreateMember: typeof import('../src/lib/memberLink').linkOrCreateMember,
+  churchId: string,
+  apply: boolean
+) {
   const users = await sql(
-    `SELECT u.id, u.email, u.name, u.status, u.created_at,
+    `SELECT u.id, u.email, u.name, cm.status, u.created_at,
             (u.password_hash IS NULL) AS google_only,
             (SELECT m.id FROM members m WHERE LOWER(m.email) = LOWER(u.email) AND m.user_id IS NULL
              ORDER BY m.joined_at NULLS LAST LIMIT 1) AS linkable_member,
@@ -49,8 +66,10 @@ async function main() {
              ORDER BY m.joined_at NULLS LAST LIMIT 1) AS linkable_member_name,
             EXISTS (SELECT 1 FROM members m WHERE LOWER(m.email) = LOWER(u.email)) AS email_in_members
      FROM users u
+     JOIN church_memberships cm ON cm.user_id = u.id AND cm.church_id = $1
      WHERE NOT EXISTS (SELECT 1 FROM members m WHERE m.user_id = u.id)
-     ORDER BY u.created_at`
+     ORDER BY u.created_at`,
+    [churchId]
   );
 
   if (users.length === 0) {
