@@ -18,6 +18,7 @@
  * - All inserts run in one transaction.
  */
 import { loadEnvConfig } from '@next/env';
+import { checkConnectionString } from '../src/lib/connectionString';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 
@@ -46,6 +47,7 @@ async function main() {
   const { getCalendarClient } = await import('../src/lib/googleCalendarSync');
 
   if (!process.env.DATABASE_URL) throw new Error('DATABASE_URL is not set');
+  checkConnectionString(process.env.DATABASE_URL);
   const sql = neon(process.env.DATABASE_URL);
 
   const churches = await sql`SELECT id, name, timezone, google_calendar_id FROM churches WHERE slug = ${slug}`;
