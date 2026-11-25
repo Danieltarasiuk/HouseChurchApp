@@ -8,14 +8,18 @@ import {
   requireCalendarRole,
   syncCalendarEvent,
   validateCalendarEvent,
+  visibilityCondition,
 } from '@/lib/calendarEvents';
 import { inChurch } from '@/lib/churchRoute';
 
 export const maxDuration = 30;
 
-/** GET ?from=YYYY-MM-DD&to=YYYY-MM-DD — events overlapping the inclusive range. */
+/**
+ * GET ?from=YYYY-MM-DD&to=YYYY-MM-DD — events overlapping the inclusive range.
+ * Admins and group leaders get both kinds; members only church events.
+ */
 async function handleGET(req: NextRequest) {
-  const guard = await requireCalendarRole(['admin', 'group_leader']);
+  const guard = await requireCalendarRole(['admin', 'group_leader', 'member']);
   if (!guard.ok) return guard.response;
 
   const from = req.nextUrl.searchParams.get('from');
@@ -27,7 +31,7 @@ async function handleGET(req: NextRequest) {
   try {
     const rows = (await sql(
       `SELECT ${CALENDAR_EVENT_COLUMNS} FROM calendar_events
-       WHERE start_date <= $2 AND end_date >= $1
+       WHERE start_date <= $2 AND end_date >= $1 AND ${visibilityCondition(guard.role)}
        ORDER BY start_date, start_time NULLS FIRST, title_en`,
       [from, to]
     )) as CalendarEventRow[];
@@ -58,10 +62,10 @@ async function handlePOST(req: NextRequest) {
   try {
     const rows = await sql(
       `INSERT INTO calendar_events
-         (church_id, title_en, title_es, category, start_date, end_date, start_time, end_time, notes, status, created_by)
-       VALUES ($11, $1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+         (church_id, title_en, title_es, category, start_date, end_date, start_time, end_time, notes, status, created_by, visibility)
+       VALUES ($11, $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $12)
        RETURNING ${CALENDAR_EVENT_COLUMNS}`,
-      [e.title_en, e.title_es, e.category, e.start_date, e.end_date, e.start_time, e.end_time, e.notes, e.status, guard.userId, currentChurchId()]
+      [e.title_en, e.title_es, e.category, e.start_date, e.end_date, e.start_time, e.end_time, e.notes, e.status, guard.userId, currentChurchId(), e.visibility]
     );
     row = rows[0] as CalendarEventRow;
   } catch (error) {

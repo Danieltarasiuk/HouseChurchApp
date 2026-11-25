@@ -1,16 +1,39 @@
 /**
- * Server-side helpers for the leadership calendar API routes: role checks,
- * row selection, validation, pastor field-stripping and the save-then-push
- * sync step.
+ * Server-side helpers for the calendar API routes: role checks, row
+ * selection, validation, field-stripping and the save-then-push sync step.
+ *
+ * Two kinds of event, in calendar_events.visibility:
+ *   'leaders'  leadership events: admins and group leaders only, pushed to
+ *              the church's Google Calendar
+ *   'members'  church events: every active member of the church; kept in the
+ *              app only (not pushed to Google)
  */
 import { NextResponse } from 'next/server';
 import { requireViewer } from './authz';
 import { sql } from './db';
 import { isCalendarCategory } from './calendarCategories';
 import { isHHMM, isISODate, toHHMM } from './calendarDates';
-import { getCalendarId, googleErrorMessage, pushEvent } from './googleCalendarSync';
+import { deleteGoogleEvent, getCalendarId, googleErrorMessage, pushEvent } from './googleCalendarSync';
 
-export type CalendarRole = 'admin' | 'group_leader';
+export type CalendarRole = 'admin' | 'group_leader' | 'member';
+export type EventVisibility = 'leaders' | 'members';
+
+export function isEventVisibility(v: unknown): v is EventVisibility {
+  return v === 'leaders' || v === 'members';
+}
+
+/** Admins and group leaders see both kinds; members only church events. */
+export function canSeeEvent(role: CalendarRole, visibility: EventVisibility): boolean {
+  return role === 'admin' || role === 'group_leader' || visibility === 'members';
+}
+
+/**
+ * SQL condition limiting calendar_events to what `role` may see. Used by
+ * every read, so a member never gets a leadership event by range or by id.
+ */
+export function visibilityCondition(role: CalendarRole): string {
+  return role === 'admin' || role === 'group_leader' ? 'TRUE' : "visibility = 'members'";
+}
 
 export interface CalendarEventRow {
   id: string;
@@ -23,7 +46,7 @@ export interface CalendarEventRow {
   end_time: string | null;
   notes: string | null;
   status: 'scheduled' | 'cancelled';
-  visibility: 'leaders' | 'members';
+  visibility: EventVisibility;
   google_event_id: string | null;
   sync_status: 'synced' | 'pending' | 'error';
   sync_error: string | null;
@@ -59,7 +82,7 @@ export async function requireCalendarRole(allowed: CalendarRole[]): Promise<Guar
   return { ok: true, role: viewer.role as CalendarRole, userId: viewer.userId };
 }
 
-/** Pastors never see internal notes or sync state. */
+/** Only admins see internal notes and sync state. */
 export function forRole(row: CalendarEventRow, role: CalendarRole) {
   if (role === 'admin') return row;
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
@@ -67,8 +90,12 @@ export function forRole(row: CalendarEventRow, role: CalendarRole) {
   return rest;
 }
 
-export async function getCalendarEvent(id: string): Promise<CalendarEventRow | null> {
-  const rows = await sql(`SELECT ${CALENDAR_EVENT_COLUMNS} FROM calendar_events WHERE id = $1`, [id]);
+/** One event, or null when it does not exist or `role` may not see it. */
+export async function getCalendarEvent(id: string, role: CalendarRole = 'admin'): Promise<CalendarEventRow | null> {
+  const rows = await sql(
+    `SELECT ${CALENDAR_EVENT_COLUMNS} FROM calendar_events WHERE id = $1 AND ${visibilityCondition(role)}`,
+    [id]
+  );
   return (rows[0] as CalendarEventRow) ?? null;
 }
 
@@ -82,6 +109,7 @@ export interface CalendarEventInput {
   end_time: string | null;
   notes: string | null;
   status: 'scheduled' | 'cancelled';
+  visibility: EventVisibility;
 }
 
 function cleanText(v: unknown): string | null {
@@ -119,6 +147,10 @@ export function validateCalendarEvent(
   const status = raw.status ?? 'scheduled';
   if (status !== 'scheduled' && status !== 'cancelled') return { ok: false, error: 'Invalid status', reason: 'invalid_status' };
 
+  // New events, and rows from before there were two kinds, are leadership.
+  const visibility = raw.visibility ?? 'leaders';
+  if (!isEventVisibility(visibility)) return { ok: false, error: 'Invalid visibility', reason: 'invalid_visibility' };
+
   return {
     ok: true,
     value: {
@@ -131,18 +163,32 @@ export function validateCalendarEvent(
       end_time,
       notes: cleanText(raw.notes),
       status,
+      visibility,
     },
   };
 }
 
 /**
- * Push one row to Google and record the outcome. Never throws: a Google
- * failure is stored as sync_status='error' and the database save stands.
+ * Bring Google in line with one row and record the outcome. Leadership events
+ * are pushed; church events are not, and one that was pushed while it was a
+ * leadership event is removed from Google. Never throws: a Google failure is
+ * stored as sync_status='error' and the database save stands.
  */
 export async function syncCalendarEvent(row: CalendarEventRow): Promise<CalendarEventRow> {
   // A church with no Google Calendar keeps its events in the app only.
   if (!getCalendarId()) return row;
   try {
+    if (row.visibility !== 'leaders') {
+      if (row.google_event_id) await deleteGoogleEvent(row.google_event_id);
+      const rows = await sql(
+        `UPDATE calendar_events
+           SET google_event_id = NULL, sync_status = 'synced', sync_error = NULL
+         WHERE id = $1
+         RETURNING ${CALENDAR_EVENT_COLUMNS}`,
+        [row.id]
+      );
+      return (rows[0] as CalendarEventRow) ?? row;
+    }
     const googleId = await pushEvent(row);
     const rows = await sql(
       `UPDATE calendar_events
