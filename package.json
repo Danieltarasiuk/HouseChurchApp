@@ -6,10 +6,12 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "next lint",
+    "lint": "eslint .",
     "check:schema": "node scripts/check-schema-drift.mjs",
     "seed:calendar": "tsx scripts/seed-calendar-2027.ts",
-    "backfill:member-links": "tsx scripts/backfill-member-links.ts"
+    "backfill:member-links": "tsx scripts/backfill-member-links.ts",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
   },
   "dependencies": {
     "@fullcalendar/core": "^6.1.22",
@@ -28,6 +30,7 @@
     "react-dom": "^19.0.0"
   },
   "devDependencies": {
+    "@electric-sql/pglite": "^0.3.7",
     "@tailwindcss/postcss": "^4.0.0",
     "@types/bcryptjs": "^2.4.6",
     "@types/leaflet": "^1.9.21",
@@ -38,6 +41,7 @@
     "eslint-config-next": "^16.2.2",
     "tailwindcss": "^4.0.0",
     "tsx": "^4.23.15",
-    "typescript": "^5.7.0"
+    "typescript": "^5.7.0",
+    "vitest": "^3.2.4"
   }
 }

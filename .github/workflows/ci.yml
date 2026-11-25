@@ -1,0 +1,48 @@
+name: CI
+
+# Typecheck, lint, tests and a production build on every pull request (and
+# on main), alongside the separate Schema drift workflow.
+#
+# Needs no secrets: tests run against an in-process Postgres (PGlite) built
+# from src/lib/schema.sql with Planning Center mocked, and the build only
+# needs DATABASE_URL to be a well-formed URL (nothing connects at build time).
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    name: typecheck, lint, test, build
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Test
+        run: npm test
+
+      - name: Build
+        env:
+          DATABASE_URL: postgresql://ci:ci@ci.invalid/ci
+        run: npm run build

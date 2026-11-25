@@ -4,7 +4,7 @@ import { Suspense, useState, useEffect, useCallback } from 'react';
 import { useSession } from 'next-auth/react';
 import { useSearchParams } from 'next/navigation';
 import { useLang } from '@/context/LangContext';
-import { Shield, CloudDownload, Link as LinkIcon, CheckCircle, Trash2 } from 'lucide-react';
+import { CloudDownload, Link as LinkIcon, CheckCircle, Trash2 } from 'lucide-react';
 import type { SyncStatus, SyncWarning } from '@/lib/pco';
 import { NoAccess } from '@/components/NoAccess';
 import { PrivacyControls } from '@/components/PrivacyControls';
