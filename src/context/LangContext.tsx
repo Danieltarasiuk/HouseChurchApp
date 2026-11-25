@@ -312,6 +312,7 @@ const translations: Translations = {
     'settings.pcoSource.manual': 'manual',
     'settings.pcoSyncOk': 'Success',
     'settings.pcoSyncFailed': 'Failed',
+    'settings.pcoHouseholdsNotUpdated': 'Households not updated: {reason}. Members synced, and existing household groupings were kept.',
     'nav.calendar': 'Calendar',
     'cal.title': 'Leadership Calendar',
     'cal.sub': 'Church events for the leadership team. Changes go to the CityChurch Miami Google Calendar.',
@@ -726,6 +727,7 @@ const translations: Translations = {
     'settings.pcoSource.manual': 'manual',
     'settings.pcoSyncOk': 'Exitosa',
     'settings.pcoSyncFailed': 'Fallida',
+    'settings.pcoHouseholdsNotUpdated': 'Hogares no actualizados: {reason}. Los miembros se sincronizaron y se conservaron los hogares existentes.',
   },
 };
 

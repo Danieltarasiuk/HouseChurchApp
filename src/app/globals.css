@@ -856,6 +856,11 @@ tr:hover td {
   color: var(--accent-soft-text);
 }
 
+.settings-alert-warning {
+  background: var(--warning-bg);
+  color: #E65100; /* same as .badge-you: --warning on --warning-bg is too faint */
+}
+
 .settings-alert-close {
   background: none;
   border: none;

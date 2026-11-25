@@ -17,6 +17,8 @@ interface LastSync {
   source: string;
   success: boolean;
   detail: string | null;
+  /** Set when the sync succeeded but skipped households (values kept). */
+  householdsError: string | null;
   syncedCount: number | null;
   createdAt: string;
 }
@@ -334,6 +336,13 @@ function SettingsContent() {
         {pcoResult && (
           <div className="settings-alert settings-alert-success" role="status" style={{ marginTop: '16px', marginBottom: 0 }}>
             {pcoResult}
+          </div>
+        )}
+        {/* From the last sync_log row, so a cron sync that skipped households
+            shows here too, and it stays until a sync updates them. */}
+        {lastSync?.householdsError && (
+          <div className="settings-alert settings-alert-warning" role="alert" style={{ marginTop: '16px', marginBottom: 0 }}>
+            {t('settings.pcoHouseholdsNotUpdated').replace('{reason}', lastSync.householdsError)}
           </div>
         )}
       </div>

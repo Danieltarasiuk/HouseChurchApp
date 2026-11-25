@@ -5,6 +5,7 @@ import {
   getValidPcoToken,
   runPcoSync,
   logSync,
+  describeSyncResult,
   PCO_ERROR_MESSAGES,
 } from '@/lib/pco';
 
@@ -61,7 +62,7 @@ export async function GET(request: Request) {
     await logSync(
       'cron',
       true,
-      `Imported ${result.imported}, archived ${result.archived}, ${result.campuses} campuses`,
+      describeSyncResult(result),
       result.imported
     );
 
