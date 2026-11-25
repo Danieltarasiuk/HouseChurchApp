@@ -118,7 +118,7 @@ function LoginContent() {
               className="form-input"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
-              placeholder="your@email.com"
+              placeholder={t('auth.emailPlaceholder')}
               required
               disabled={loading}
             />

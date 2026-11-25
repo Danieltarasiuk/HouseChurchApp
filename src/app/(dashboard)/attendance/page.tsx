@@ -3,6 +3,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { useSession } from 'next-auth/react';
 import { useLang } from '@/context/LangContext';
+import { formatDate, formatNumericMonthDay } from '@/lib/formatDate';
 import { NoAccess } from '@/components/NoAccess';
 import { todayInChurchTz } from '@/lib/churchTime';
 
@@ -215,7 +216,15 @@ const groupHeaderStyle = {
 };
 
 export default function AttendancePage() {
-  const { t } = useLang();
+  const { t, language } = useLang();
+
+  /** Check-Ins import failure, translated from the API's reason code. */
+  const checkinsErrorMessage = (reason: string | undefined, status: number) => {
+    if (reason === 'needs_reconnect') return t('att.checkinsNeedsReconnect');
+    if (reason === 'event_not_found' || status === 404) return t('att.checkinsEventNotFound');
+    const key = reason ? `settings.pcoReason.${reason}` : '';
+    return key && t(key) !== key ? `${t('att.importKidsError')}: ${t(key)}` : t('att.importKidsError');
+  };
   const { data: authSession } = useSession();
   const userRole = (authSession?.user as { role?: string })?.role;
 
@@ -439,7 +448,7 @@ export default function AttendancePage() {
       });
       const data = await res.json();
       if (!res.ok) {
-        alert(t('att.noteError') + (data.error ? ': ' + data.error : ''));
+        alert(data.reason === 'too_long' ? t('att.noteTooLong').replace('{max}', String(data.max ?? 120)) : t('att.noteError'));
         return;
       }
       setAllMembers(prev => prev.map(m =>
@@ -460,7 +469,7 @@ export default function AttendancePage() {
       const res = await fetch(`/api/attendance/pco-checkins?date=${date}`);
       const data = await res.json();
       if (!res.ok) {
-        alert(`${t('att.importKidsError')}: ${data.error || res.status}`);
+        alert(checkinsErrorMessage(data.reason, res.status));
         return;
       }
       const kidIds: string[] = data.kid_member_ids || [];
@@ -480,7 +489,7 @@ export default function AttendancePage() {
       alert(t('att.importKidsDone')
         .replace('{n}', String(kidIds.length))
         .replace('{a}', String(adultIds.length))
-        .replace('{date}', date));
+        .replace('{date}', formatDate(date, language)));
     } catch {
       alert(t('att.importKidsError'));
     } finally {
@@ -632,10 +641,8 @@ export default function AttendancePage() {
   const showNoMeetingDay =
     viewType === 'house_church' && !!viewHcId && !viewLoading && !!history && !history.meeting_day;
 
-  const dayMonth = (d: string) => {
-    const [, mm, dd] = d.split('-');
-    return `${dd}/${mm}`;
-  };
+  // Compact column header in the viewer's locale (11/30 in English, 30/11 in Spanish).
+  const dayMonth = (d: string) => formatNumericMonthDay(d, language);
 
   // Rolling average per service over the sessions in the selected range
   const avgAdults = sessions.length > 0
@@ -726,8 +733,7 @@ export default function AttendancePage() {
         }),
       });
       if (!res.ok) {
-        const data = await res.json().catch(() => ({}));
-        alert(t('att.deleteError') + (data.error ? ': ' + data.error : ''));
+        alert(t('att.deleteError'));
         return;
       }
       setRateCache({});
@@ -1206,7 +1212,7 @@ export default function AttendancePage() {
                       padding: '10px 0', borderBottom: '1px solid var(--border)', fontSize: '14px',
                     }}
                   >
-                    <span style={{ fontWeight: 600, minWidth: '90px' }}>{s.date}</span>
+                    <span style={{ fontWeight: 600, minWidth: '90px' }}>{formatDate(s.date, language)}</span>
                     <span style={{ flex: 1, minWidth: '140px' }}>
                       {s.attendance_type === 'sunday_service'
                         ? t('att.sundayService')

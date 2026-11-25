@@ -5,11 +5,12 @@ import dynamic from 'next/dynamic';
 import { useParams, useRouter } from 'next/navigation';
 import { useSession } from 'next-auth/react';
 import { useLang } from '@/context/LangContext';
+import { genderLabel, meetingDayLabel } from '@/lib/formatDate';
 import { PrivacyControls } from '@/components/PrivacyControls';
 import { birthdayMD, birthdayKeyMD, formatBirthdayMD, isMinorRow } from '@/lib/memberDisplay';
 import { ArrowLeft, Pencil } from 'lucide-react';
 import HouseChurchModal from '@/components/HouseChurchModal';
-import { getHCColor } from '@/lib/map-utils';
+import { getHCColor, escapeHtml } from '@/lib/map-utils';
 import type { MapMarker } from '@/lib/map-utils';
 
 const MapComponent = dynamic(() => import('@/components/MapComponent'), { ssr: false });
@@ -178,7 +179,7 @@ export default function HouseChurchDetailPage() {
         lng: church.longitude,
         type: 'house_church',
         color,
-        tooltipHtml: `<strong>${church.name}</strong>`,
+        tooltipHtml: `<strong>${escapeHtml(church.name)}</strong>`,
       });
     }
 
@@ -191,7 +192,7 @@ export default function HouseChurchDetailPage() {
           lng: m.longitude,
           type: 'member',
           color,
-          tooltipHtml: `<strong>${m.first_name} ${m.last_name}</strong><br/>${addr || '—'}`,
+          tooltipHtml: `<strong>${escapeHtml(`${m.first_name} ${m.last_name}`)}</strong><br/>${escapeHtml(addr || '—')}`,
         });
       }
     }
@@ -319,7 +320,7 @@ export default function HouseChurchDetailPage() {
             <div><strong>{t('hc.trainee')}:</strong> {church.trainee_name}</div>
           )}
           {church.meeting_day && (
-            <div><strong>{t('hc.meetingTime')}:</strong> {church.meeting_day}{church.meeting_time ? ` @ ${church.meeting_time}` : ''}</div>
+            <div><strong>{t('hc.meetingTime')}:</strong> {meetingDayLabel(t, church.meeting_day)}{church.meeting_time ? ` @ ${church.meeting_time}` : ''}</div>
           )}
           {addr && (
             <div style={{ gridColumn: '1 / -1' }}><strong>{t('hc.address')}:</strong> {addr}</div>
@@ -332,7 +333,7 @@ export default function HouseChurchDetailPage() {
         <MapComponent
           markers={mapMarkers}
           height="320px"
-          emptyMessage={language === 'es' ? 'No hay datos de ubicación.' : 'No location data available.'}
+          emptyMessage={t('map.noLocations')}
         />
       </div>
 
@@ -396,7 +397,7 @@ export default function HouseChurchDetailPage() {
                           )}
                         </span>
                       </td>
-                      <td>{m.gender || '—'}</td>
+                      <td>{genderLabel(t, m.gender)}</td>
                       <td>{age !== null ? age : '—'}</td>
                       <td>{bday}</td>
                       <td className="col-address">

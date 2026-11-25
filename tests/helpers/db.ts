@@ -53,3 +53,10 @@ export const mockedSql = (text: string, params?: unknown[]) => {
   if (!current.db) throw new Error('test forgot to set current.db');
   return current.db.sql(text, params);
 };
+
+/**
+ * withTransaction for tests: runs on the same PGlite connection. Each test
+ * is already inside a transaction (rolled back afterwards), so this must not
+ * BEGIN/COMMIT itself; SELECT … FOR UPDATE still works inside it.
+ */
+export const mockedWithTransaction = <T>(fn: (q: typeof mockedSql) => Promise<T>) => fn(mockedSql);

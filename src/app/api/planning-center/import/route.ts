@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { auth } from '@/lib/auth';
-import { getValidPcoToken, runPcoSync, logSync, encodeSyncDetail, PCO_ERROR_MESSAGES } from '@/lib/pco';
+import { getPcoSyncUserId, getValidPcoToken, runPcoSync, logSync, encodeSyncDetail, encodeFailureDetail, PCO_ERROR_MESSAGES } from '@/lib/pco';
 
 // Geocoding is rate limited to 1 req/sec, so cap the whole request well
 // inside the platform's function timeout and let leftovers roll to the next run.
@@ -19,10 +19,13 @@ export async function POST() {
   }
 
   try {
-    const tokenResult = await getValidPcoToken(session.user.id!);
+    // The same connection the weekly sync uses (and Settings shows), so any
+    // admin can run it, not only the one who connected Planning Center.
+    const tokenUserId = await getPcoSyncUserId();
+    const tokenResult = tokenUserId ? await getValidPcoToken(tokenUserId) : { error: 'not_connected' as const };
     if (tokenResult.error) {
       const message = PCO_ERROR_MESSAGES[tokenResult.error];
-      await logSync('manual', false, message, null);
+      await logSync('manual', false, encodeFailureDetail({ step: 'connection', code: tokenResult.error }), null);
       const status = tokenResult.error === 'pco_unavailable' ? 502 : 400;
       return NextResponse.json({ error: message, reason: tokenResult.error }, { status });
     }
@@ -39,7 +42,7 @@ export async function POST() {
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     console.error('PCO import error:', message, error);
-    await logSync('manual', false, message, null);
-    return NextResponse.json({ error: `Sync failed: ${message}` }, { status: 500 });
+    await logSync('manual', false, encodeFailureDetail({ step: 'sync', code: 'unexpected', params: { detail: message } }), null);
+    return NextResponse.json({ error: 'Sync failed', reason: 'sync_failed' }, { status: 500 });
   }
 }

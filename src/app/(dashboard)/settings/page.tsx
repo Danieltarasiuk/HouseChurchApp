@@ -4,11 +4,15 @@ import { Suspense, useState, useEffect, useCallback } from 'react';
 import { useSession } from 'next-auth/react';
 import { useSearchParams } from 'next/navigation';
 import { useLang } from '@/context/LangContext';
+import { formatDateTime } from '@/lib/formatDate';
 import { CloudDownload, Link as LinkIcon, CheckCircle, Trash2 } from 'lucide-react';
 import type { SyncStatus, SyncWarning } from '@/lib/pco';
 import { NoAccess } from '@/components/NoAccess';
 import { PrivacyControls } from '@/components/PrivacyControls';
 import { PendingAccounts, type LinkableMember } from '@/components/PendingAccounts';
+
+const PCO_REASONS = ['not_connected', 'missing_credentials', 'invalid_credentials', 'permission_denied', 'pco_unavailable', 'bad_refresh_response'];
+const hasPcoReason = (r: string) => PCO_REASONS.includes(r);
 
 const SYNC_STATUS_KEY: Record<SyncStatus, string> = {
   ok: 'settings.pcoSyncOk',
@@ -24,6 +28,8 @@ interface User {
   status: 'active' | 'pending';
   created_at: string;
   suggested_member_id: string | null;
+  /** Active Pastor Incubator grant (admins have access regardless). */
+  incubator_access: boolean;
 }
 
 interface LastSync {
@@ -79,6 +85,8 @@ function SettingsContent() {
   const [pcoImporting, setPcoImporting] = useState(false);
   const [pcoResult, setPcoResult] = useState('');
   const [pcoFailReason, setPcoFailReason] = useState('');
+  /** Name of the admin whose Planning Center connection the sync uses. */
+  const [pcoConnectedBy, setPcoConnectedBy] = useState('');
   const [lastSync, setLastSync] = useState<LastSync | null>(null);
 
   const fetchUsers = useCallback(async () => {
@@ -111,6 +119,25 @@ function SettingsContent() {
     }
   }, [status, isAdmin, fetchUsers]);
 
+  const [incubatorUpdating, setIncubatorUpdating] = useState<string | null>(null);
+  const setIncubatorAccess = async (user: User, active: boolean) => {
+    setIncubatorUpdating(user.id);
+    setError('');
+    try {
+      const res = await fetch('/api/settings/incubator-access', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userId: user.id, active }),
+      });
+      if (!res.ok) throw new Error();
+      setUsers((prev) => prev.map((u) => (u.id === user.id ? { ...u, incubator_access: active } : u)));
+    } catch {
+      setError(t('settings.incubatorError'));
+    } finally {
+      setIncubatorUpdating(null);
+    }
+  };
+
   const removeUser = async (user: User) => {
     if (!window.confirm(t('settings.removeConfirm').replace('{name}', user.name || user.email))) return;
     setRemoving(user.id);
@@ -122,9 +149,8 @@ function SettingsContent() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ userId: user.id }),
       });
-      const data = await res.json();
       if (!res.ok) {
-        setError(data.error || t('settings.removeError'));
+        setError(t('settings.removeError'));
         return;
       }
       setUsers(prev => prev.filter(u => u.id !== user.id));
@@ -166,6 +192,7 @@ function SettingsContent() {
       fetch('/api/planning-center/status')
         .then((res) => res.json())
         .then((data) => {
+          setPcoConnectedBy(data.connectedBy?.name || '');
           if (data.connected) {
             setPcoConnected(true);
             setPcoFailReason('');
@@ -183,7 +210,7 @@ function SettingsContent() {
 
   const lastSyncText = lastSync
     ? t('settings.pcoLastSync')
-        .replace('{date}', new Date(lastSync.createdAt).toLocaleString(language))
+        .replace('{date}', formatDateTime(lastSync.createdAt, language))
         .replace('{source}', t('settings.pcoSource.' + lastSync.source))
         .replace('{status}', t(SYNC_STATUS_KEY[lastSync.status]))
     : '';
@@ -209,7 +236,7 @@ function SettingsContent() {
 
       if (!res.ok) {
         const data = await res.json().catch(() => ({}));
-        setError(data.reason === 'pending' ? t('settings.approveFirst') : (data.error || t('settings.updateError')));
+        setError(data.reason === 'pending' ? t('settings.approveFirst') : t('settings.updateError'));
         return;
       }
 
@@ -236,7 +263,10 @@ function SettingsContent() {
       const data = await res.json();
 
       if (!res.ok) {
-        setError(data.error || t('settings.pcoImportError'));
+        // Reason codes are translated here; the server's text is English.
+        setError(data.reason && hasPcoReason(data.reason)
+          ? t('settings.pcoConnFailed').replace('{reason}', t('settings.pcoReason.' + data.reason))
+          : t('settings.pcoImportError'));
         return;
       }
 
@@ -254,6 +284,9 @@ function SettingsContent() {
           .replace('{archived}', String(data.archived || 0))
           .replace('{campuses}', String(data.campuses || 0))
           .replace('{total}', String(data.total))
+        + (data.houseChurchesDeactivated
+          ? ' ' + t('settings.pcoHcDeactivated').replace('{count}', String(data.houseChurchesDeactivated))
+          : '')
       );
       setTimeout(() => setPcoResult(''), 8000);
     } catch {
@@ -325,7 +358,9 @@ function SettingsContent() {
               <>
                 <span className="badge badge-active" style={{ gap: '4px', display: 'inline-flex', alignItems: 'center' }}>
                   <CheckCircle size={12} />
-                  {t('settings.pcoStatusConnected')}
+                  {pcoConnectedBy
+                    ? t('settings.pcoConnectedAs').replace('{name}', pcoConnectedBy)
+                    : t('settings.pcoStatusConnected')}
                 </span>
                 <button
                   className="btn btn-primary"
@@ -427,13 +462,14 @@ function SettingsContent() {
                   <th>{t('auth.email')}</th>
                   <th>{t('settings.currentRole')}</th>
                   <th>{t('settings.changeRole')}</th>
+                  <th>{t('settings.incubatorAccess')}</th>
                   <th>{t('settings.remove')}</th>
                 </tr>
               </thead>
               <tbody>
                 {filtered.length === 0 ? (
                   <tr>
-                    <td colSpan={5} style={{ textAlign: 'center', color: 'var(--text-tertiary)', padding: '24px' }}>
+                    <td colSpan={6} style={{ textAlign: 'center', color: 'var(--text-tertiary)', padding: '24px' }}>
                       {t('common.noResults')}
                     </td>
                   </tr>
@@ -472,6 +508,21 @@ function SettingsContent() {
                                 </option>
                               ))}
                             </select>
+                          )}
+                        </td>
+                        <td>
+                          {user.role === 'admin' ? (
+                            <span style={{ fontSize: '13px', color: 'var(--text-tertiary)' }}>{t('settings.incubatorAlways')}</span>
+                          ) : user.status === 'pending' ? (
+                            <span style={{ fontSize: '13px', color: 'var(--text-tertiary)' }}>—</span>
+                          ) : (
+                            <input
+                              type="checkbox"
+                              checked={user.incubator_access}
+                              disabled={incubatorUpdating === user.id}
+                              onChange={(e) => setIncubatorAccess(user, e.target.checked)}
+                              aria-label={t('settings.incubatorToggle').replace('{name}', user.name || user.email)}
+                            />
                           )}
                         </td>
                         <td>

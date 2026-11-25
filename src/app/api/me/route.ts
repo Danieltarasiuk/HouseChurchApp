@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { requireViewer } from '@/lib/authz';
+import { hasIncubatorAccess } from '@/lib/incubatorAccess';
 
 /**
  * The signed-in viewer's authorization context, for pages that need to shape
@@ -14,5 +15,6 @@ export async function GET() {
     memberId: viewer.memberId,
     houseChurchId: viewer.houseChurchId,
     pastoredHcIds: viewer.pastoredHcIds,
+    incubatorAccess: await hasIncubatorAccess(viewer),
   });
 }

@@ -1,9 +1,12 @@
 import { describe, it, expect, beforeAll, beforeEach, afterEach, vi } from 'vitest';
 import { NextRequest } from 'next/server';
-import { current, setupTestDb, mockedSql } from './helpers/db';
+import { current, setupTestDb, mockedSql, mockedWithTransaction } from './helpers/db';
 import { seedChurch, U, M, HC, ROLE_OF } from './helpers/fixtures';
 
-vi.mock('@/lib/db', () => ({ sql: (text: string, params?: unknown[]) => mockedSql(text, params) }));
+vi.mock('@/lib/db', () => ({
+  sql: (text: string, params?: unknown[]) => mockedSql(text, params),
+  withTransaction: <T>(fn: (q: typeof mockedSql) => Promise<T>) => mockedWithTransaction(fn),
+}));
 
 // The signed-in user for the next request; null = signed out.
 let sessionUser: { id: string; role: string } | null = null;

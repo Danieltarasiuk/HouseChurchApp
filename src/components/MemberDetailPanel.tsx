@@ -1,6 +1,7 @@
 'use client';
 
 import { useLang } from '@/context/LangContext';
+import { formatDate } from '@/lib/formatDate';
 import { PrivacyControls } from '@/components/PrivacyControls';
 import { birthdayMD, formatBirthdayMD } from '@/lib/memberDisplay';
 
@@ -32,7 +33,7 @@ export function MemberDetailPanel({ member, onClose }: { member: DirectoryMember
   const address = [member.address_street, member.address_city, stateZip].filter(Boolean).join(', ');
   const md = birthdayMD(member);
   const birthday = member.date_of_birth
-    ? new Date(member.date_of_birth + 'T00:00:00').toLocaleDateString(language === 'es' ? 'es-US' : 'en-US', { year: 'numeric', month: 'short', day: 'numeric' })
+    ? formatDate(member.date_of_birth, language)
     : md ? formatBirthdayMD(md, language) : null;
 
   // A row only when the server sent the field at all.

@@ -41,7 +41,8 @@ export default function RegisterPage() {
 
       if (!res.ok) {
         const data = await res.json().catch(() => null);
-        setError(data?.error || t('auth.registrationFailed'));
+        const key = data?.reason ? `auth.err.${data.reason}` : '';
+        setError(key && t(key) !== key ? t(key) : t('auth.registrationFailed'));
         return;
       }
 
@@ -138,7 +139,7 @@ export default function RegisterPage() {
               className="form-input"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
-              placeholder="your@email.com"
+              placeholder={t('auth.emailPlaceholder')}
               required
               disabled={loading}
             />

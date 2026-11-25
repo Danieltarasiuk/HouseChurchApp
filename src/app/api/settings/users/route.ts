@@ -24,7 +24,8 @@ export async function GET() {
               (SELECT m.id FROM members m
                WHERE u.status = 'pending' AND m.user_id IS NULL AND m.is_active = true
                  AND LOWER(m.email) = LOWER(u.email)
-               ORDER BY m.joined_at NULLS LAST LIMIT 1) AS suggested_member_id
+               ORDER BY m.joined_at NULLS LAST LIMIT 1) AS suggested_member_id,
+              COALESCE((SELECT ia.is_active FROM incubator_access ia WHERE ia.user_id = u.id), false) AS incubator_access
        FROM users u
        ORDER BY (u.status = 'pending') DESC, u.name ASC`
     );

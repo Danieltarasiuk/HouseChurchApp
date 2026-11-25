@@ -1,19 +1,29 @@
 import type { Metadata } from 'next';
+import { cookies } from 'next/headers';
 import './globals.css';
 import { CHURCH_CENTER_MODAL_SRC, GIVING_URL } from '@/lib/giving';
+import { LangProvider } from '@/context/LangContext';
+import { LANG_COOKIE, isLanguage, translate, type Language } from '@/lib/translations';
 
-export const metadata: Metadata = {
-  title: 'HouseChurchApp',
-  description: 'A bilingual (EN/ES) web app for managing a network of house churches — discipleship tracking, pastor training, attendance, prayer requests, and member management.',
-};
+/** The visitor's chosen language, from the cookie LangProvider sets. */
+async function requestLanguage(): Promise<Language> {
+  const value = (await cookies()).get(LANG_COOKIE)?.value;
+  return isLanguage(value) ? value : 'en';
+}
 
-export default function RootLayout({
+export async function generateMetadata(): Promise<Metadata> {
+  const lang = await requestLanguage();
+  return { title: translate(lang, 'app.title'), description: translate(lang, 'app.description') };
+}
+
+export default async function RootLayout({
   children,
 }: Readonly<{
   children: React.ReactNode;
 }>) {
+  const lang = await requestLanguage();
   return (
-    <html lang="en">
+    <html lang={lang}>
       <head>
         {/*
           Church Center's giving modal. Deliberately a plain blocking <script>
@@ -27,7 +37,9 @@ export default function RootLayout({
       </head>
       <body>
         <div className="app">
-          {children}
+          {/* One provider for the whole app, starting in the cookie's
+              language so the first paint is already translated. */}
+          <LangProvider initialLanguage={lang}>{children}</LangProvider>
         </div>
       </body>
     </html>

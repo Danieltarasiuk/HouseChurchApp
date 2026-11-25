@@ -1,4 +1,4 @@
-import { sql } from '@/lib/db';
+import { sql, withTransaction } from '@/lib/db';
 import { geocodeMembersWithoutCoords, geocodeHouseChurchesWithoutCoords } from '@/lib/geocode';
 import { isoDateInChurchTz } from '@/lib/churchTime';
 
@@ -7,7 +7,8 @@ export type PcoErrorReason =
   | 'missing_credentials'
   | 'invalid_credentials'
   | 'permission_denied'
-  | 'pco_unavailable';
+  | 'pco_unavailable'
+  | 'bad_refresh_response';
 
 export type PcoTokenResult =
   | { token: string; error?: undefined }
@@ -19,6 +20,7 @@ export const PCO_ERROR_MESSAGES: Record<PcoErrorReason, string> = {
   invalid_credentials: 'Planning Center authorization expired or was revoked. Please reconnect.',
   permission_denied: 'Planning Center denied access. Check the app permissions in PCO.',
   pco_unavailable: 'Planning Center is unavailable. Please try again later.',
+  bad_refresh_response: 'Planning Center sent an incomplete token response; the stored connection was kept. Please try again later.',
 };
 
 /**
@@ -58,62 +60,121 @@ export async function logSync(
 }
 
 /**
+ * Planning Center access tokens expire (PCO says how long in `expires_in`);
+ * refresh this many seconds early so a token never expires mid-sync.
+ */
+const TOKEN_EXPIRY_SKEW_SECONDS = 60;
+/** Used only if PCO's response has no usable expires_in (it always should). */
+const DEFAULT_TOKEN_LIFETIME_SECONDS = 7200;
+
+/**
+ * Validates a PCO OAuth token response (authorization_code or refresh).
+ * Both tokens must be present: storing an undefined refresh token would lose
+ * the connection for good.
+ */
+export function parseTokenResponse(data: unknown):
+  | { ok: true; accessToken: string; refreshToken: string; expiresIn: number }
+  | { ok: false } {
+  const d = data as { access_token?: unknown; refresh_token?: unknown; expires_in?: unknown } | null;
+  if (!d || typeof d.access_token !== 'string' || !d.access_token || typeof d.refresh_token !== 'string' || !d.refresh_token) {
+    return { ok: false };
+  }
+  const n = Number(d.expires_in);
+  const expiresIn = Number.isFinite(n) && n > 0 ? Math.floor(n) : DEFAULT_TOKEN_LIFETIME_SECONDS;
+  if (expiresIn === DEFAULT_TOKEN_LIFETIME_SECONDS && d.expires_in !== DEFAULT_TOKEN_LIFETIME_SECONDS) {
+    console.warn('PCO token response has no usable expires_in; assuming', DEFAULT_TOKEN_LIFETIME_SECONDS, 'seconds');
+  }
+  return { ok: true, accessToken: d.access_token, refreshToken: d.refresh_token, expiresIn };
+}
+
+const stillValid = (expiresAt: unknown) =>
+  new Date(expiresAt as string).getTime() > Date.now() + TOKEN_EXPIRY_SKEW_SECONDS * 1000;
+
+/** Refreshes in flight in this server instance, so concurrent callers share one. */
+const refreshesInFlight = new Map<string, Promise<PcoTokenResult>>();
+
+/**
  * Returns a valid PCO access token for the user, refreshing it if expired.
  * On failure, returns a reason distinguishing missing setup, revoked/expired
- * credentials, and PCO outages.
+ * credentials, a malformed refresh response, and PCO outages.
+ *
+ * Refreshes never run twice for the same token: within one server instance
+ * concurrent callers share one refresh, and across instances the refresh
+ * holds a row lock (SELECT … FOR UPDATE) and re-checks expiry once it has
+ * it, so a second caller uses the token the first one stored instead of
+ * spending the (rotating) refresh token again.
  */
 export async function getValidPcoToken(userId: string): Promise<PcoTokenResult> {
   if (!process.env.PCO_APP_ID || !process.env.PCO_SECRET) {
     return { error: 'missing_credentials' };
   }
 
-  const rows = await sql(
-    'SELECT access_token, refresh_token, expires_at FROM pco_tokens WHERE user_id = $1',
-    [userId]
-  );
-
+  const rows = await sql('SELECT access_token, expires_at FROM pco_tokens WHERE user_id = $1', [userId]);
   if (rows.length === 0) return { error: 'not_connected' };
+  if (stillValid(rows[0].expires_at)) return { token: rows[0].access_token };
 
-  const { access_token, refresh_token, expires_at } = rows[0];
+  const pending = refreshesInFlight.get(userId);
+  if (pending) return pending;
+  const refresh = refreshPcoToken(userId).finally(() => refreshesInFlight.delete(userId));
+  refreshesInFlight.set(userId, refresh);
+  return refresh;
+}
 
-  if (new Date(expires_at) > new Date()) {
-    return { token: access_token };
-  }
+async function refreshPcoToken(userId: string): Promise<PcoTokenResult> {
+  return withTransaction(async (q) => {
+    const rows = await q(
+      'SELECT access_token, refresh_token, expires_at FROM pco_tokens WHERE user_id = $1 FOR UPDATE',
+      [userId]
+    );
+    if (rows.length === 0) return { error: 'not_connected' as const };
+    // Another instance may have refreshed while we waited for the lock.
+    if (stillValid(rows[0].expires_at)) return { token: rows[0].access_token as string };
 
-  let res: Response;
-  try {
-    res = await fetch('https://api.planningcenteronline.com/oauth/token', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        grant_type: 'refresh_token',
-        refresh_token,
-        client_id: process.env.PCO_APP_ID,
-        client_secret: process.env.PCO_SECRET,
-      }),
-    });
-  } catch {
-    return { error: 'pco_unavailable' };
-  }
-
-  if (!res.ok) {
-    // 400/401 = refresh token expired or revoked (PCO refresh tokens
-    // lapse after 90 days without use) — the user must reconnect
-    if (res.status === 400 || res.status === 401) {
-      return { error: 'invalid_credentials' };
+    let res: Response;
+    try {
+      res = await fetch('https://api.planningcenteronline.com/oauth/token', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          grant_type: 'refresh_token',
+          refresh_token: rows[0].refresh_token,
+          client_id: process.env.PCO_APP_ID,
+          client_secret: process.env.PCO_SECRET,
+        }),
+      });
+    } catch {
+      return { error: 'pco_unavailable' as const };
     }
-    if (res.status === 403) return { error: 'permission_denied' };
-    return { error: 'pco_unavailable' };
-  }
 
-  const data = await res.json();
+    if (!res.ok) {
+      // 400/401 = refresh token expired or revoked (PCO refresh tokens
+      // lapse after 90 days without use) — the user must reconnect
+      if (res.status === 400 || res.status === 401) return { error: 'invalid_credentials' as const };
+      if (res.status === 403) return { error: 'permission_denied' as const };
+      return { error: 'pco_unavailable' as const };
+    }
 
-  await sql(
-    `UPDATE pco_tokens SET access_token = $1, refresh_token = $2, expires_at = NOW() + INTERVAL '7200 seconds' WHERE user_id = $3`,
-    [data.access_token, data.refresh_token, userId]
-  );
+    let parsed: ReturnType<typeof parseTokenResponse>;
+    try {
+      parsed = parseTokenResponse(await res.json());
+    } catch {
+      parsed = { ok: false };
+    }
+    if (!parsed.ok) {
+      // Keep the stored tokens: the old refresh token may still work, and
+      // writing a missing one would lose the connection for good.
+      console.error(`PCO token refresh for user ${userId}: response missing access_token or refresh_token; kept the stored tokens`);
+      return { error: 'bad_refresh_response' as const };
+    }
 
-  return { token: data.access_token };
+    await q(
+      `UPDATE pco_tokens
+       SET access_token = $1, refresh_token = $2, expires_at = NOW() + make_interval(secs => $3)
+       WHERE user_id = $4`,
+      [parsed.accessToken, parsed.refreshToken, parsed.expiresIn, userId]
+    );
+    return { token: parsed.accessToken };
+  });
 }
 
 /**
@@ -193,7 +254,7 @@ interface CampusInfo {
  * is listed so the warning vocabulary covers it, but it is not part of
  * runPcoSync: the attendance page fetches it on demand.
  */
-export type SyncStep = 'campuses' | 'people' | 'households' | 'geocoding' | 'checkins';
+export type SyncStep = 'connection' | 'campuses' | 'people' | 'households' | 'geocoding' | 'checkins' | 'sync';
 
 export type SyncWarningCode =
   | 'network_error'  // fetch threw (DNS, reset, timeout)       params.detail
@@ -205,7 +266,8 @@ export type SyncWarningCode =
   | 'incomplete'     // fewer records than PCO said exist        params.got, params.expected
   | 'archive_guard'  // archiving would deactivate too many      params.count, params.active
   | 'geocode_errors' // geocoder errors (not "no match")         params.count
-  | 'unexpected';    // anything else                           params.detail
+  | 'unexpected'     // anything else                           params.detail
+  | PcoErrorReason;  // the sync could not start (step 'connection')
 
 export interface SyncWarning {
   step: SyncStep;
@@ -227,6 +289,7 @@ export function describeWarning(w: SyncWarning): string {
     archive_guard: `archiving skipped: it would have deactivated ${p.count} of ${p.active} active synced members`,
     geocode_errors: `${p.count} address lookups failed with a geocoder error`,
     unexpected: `unexpected error (${p.detail ?? 'unknown'})`,
+    ...PCO_ERROR_MESSAGES,
   };
   return `${w.step}: ${why[w.code]}`;
 }
@@ -475,13 +538,16 @@ export interface PcoSyncResult {
   hcGeocoded: number;
   total: number;
   campuses: number;
+  /** House churches deactivated because their campus is gone from PCO. */
+  houseChurchesDeactivated: number;
 }
 
 /** English summary line for logs. */
 export function describeSyncResult(result: PcoSyncResult): string {
   const base = result.status === 'failed'
     ? 'Sync failed'
-    : `Imported ${result.imported}, archived ${result.archived}, ${result.campuses} campuses`;
+    : `Imported ${result.imported}, archived ${result.archived}, ${result.campuses} campuses` +
+      (result.houseChurchesDeactivated ? `, ${result.houseChurchesDeactivated} house churches deactivated` : '');
   return result.warnings.length
     ? `${base}. ${result.warnings.map(describeWarning).join('; ')}`
     : base;
@@ -500,6 +566,16 @@ interface SyncDetailV1 {
 
 export function encodeSyncDetail(result: PcoSyncResult): string {
   const payload: SyncDetailV1 = { v: 1, summary: describeSyncResult(result), warnings: result.warnings };
+  return JSON.stringify(payload);
+}
+
+/**
+ * sync_log.detail for a run that failed before or outside the sync steps
+ * (no Planning Center connection, a database error…), in the same format so
+ * Settings shows the reason translated.
+ */
+export function encodeFailureDetail(warning: SyncWarning): string {
+  const payload: SyncDetailV1 = { v: 1, summary: `Sync failed. ${describeWarning(warning)}`, warnings: [warning] };
   return JSON.stringify(payload);
 }
 
@@ -556,6 +632,7 @@ export async function runPcoSync(token: string, opts: PcoSyncOptions = {}): Prom
 
   // 2. Campuses → house_churches
   const campusToHcId = new Map<string, string>();
+  let houseChurchesDeactivated = 0;
   if (campusesRes.ok) {
     for (const [pcoId, campusInfo] of campusesRes.value) {
       const existing = await sql('SELECT id FROM house_churches WHERE pco_campus_id = $1', [pcoId]);
@@ -582,6 +659,18 @@ export async function runPcoSync(token: string, opts: PcoSyncOptions = {}): Prom
         campusToHcId.set(pcoId, result[0].id);
       }
     }
+    // Campuses deleted in PCO: deactivate their house churches. Safe only
+    // because the campuses fetch above was complete (all pages, matching
+    // total_count, non-empty). Reversible: a campus that reappears is set
+    // active again by the update above.
+    const gone = await sql(
+      `UPDATE house_churches SET is_active = false
+       WHERE pco_campus_id IS NOT NULL AND is_active = true
+         AND NOT (pco_campus_id = ANY($1::text[]))
+       RETURNING id`,
+      [[...campusesRes.value.keys()]]
+    );
+    houseChurchesDeactivated = gone.length;
   } else {
     warnings.push(campusesRes.warning);
   }
@@ -710,6 +799,7 @@ export async function runPcoSync(token: string, opts: PcoSyncOptions = {}): Prom
     hcGeocoded,
     total,
     campuses: campusesRes.ok ? campusesRes.value.size : 0,
+    houseChurchesDeactivated,
   };
 }
 
@@ -722,7 +812,10 @@ const ADDRESS_CHANGED = ['street', 'city', 'state', 'zip']
 // PCO Check-Ins (kids' Sunday attendance)
 // ---------------------------------------------------------------------------
 
-/** Name of the PCO Check-Ins event that represents the Sunday service. */
+/**
+ * Name of the PCO Check-Ins event that represents the Sunday service. The one
+ * place it lives: it becomes a per-church setting in Phase 1.
+ */
 export const SUNDAY_CHECKIN_EVENT_NAME = 'Reunión Dominical Español';
 
 /** Thrown when Check-Ins is unreachable; `status` is the PCO HTTP status. */
@@ -748,6 +841,27 @@ async function pcoGet(token: string, url: string) {
   return res.json();
 }
 
+/** Hard stop for paging through Check-Ins events (100 per page). */
+const MAX_EVENT_PAGES = 50;
+
+/**
+ * Finds a Check-Ins event by name (accents and case ignored) across every
+ * page of events, not just the first 100.
+ */
+async function findCheckInsEvent(token: string, name: string): Promise<{ id: string; attributes: { name: string } } | null> {
+  const wanted = normalizeName(name);
+  let nextUrl: string | null = 'https://api.planningcenteronline.com/check-ins/v2/events?per_page=100';
+  for (let page = 0; nextUrl && page < MAX_EVENT_PAGES; page++) {
+    const data = await pcoGet(token, nextUrl);
+    const match = (data.data || []).find(
+      (e: { attributes?: { name?: string } }) => normalizeName(e.attributes?.name || '') === wanted
+    );
+    if (match) return match;
+    nextUrl = typeof data.links?.next === 'string' ? data.links.next : null;
+  }
+  return null;
+}
+
 /**
  * PCO person IDs checked in to the Sunday service event on a calendar day
  * (church local time), plus who performed each check-in (the parent or
@@ -758,11 +872,7 @@ export async function fetchSundayCheckedInPersonIds(
   token: string,
   date: string
 ): Promise<{ eventName: string; personIds: Set<string>; checkerByPerson: Map<string, string> }> {
-  const events = await pcoGet(token, 'https://api.planningcenteronline.com/check-ins/v2/events?per_page=100');
-  const wanted = normalizeName(SUNDAY_CHECKIN_EVENT_NAME);
-  const event = (events.data || []).find(
-    (e: { attributes: { name: string } }) => normalizeName(e.attributes.name || '') === wanted
-  );
+  const event = await findCheckInsEvent(token, SUNDAY_CHECKIN_EVENT_NAME);
   if (!event) throw new PcoCheckInsError(`Check-Ins event "${SUNDAY_CHECKIN_EVENT_NAME}" not found.`, 404);
 
   const personIds = new Set<string>();

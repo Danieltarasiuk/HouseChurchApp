@@ -42,6 +42,18 @@ export function Sidebar() {
 
   const rawRole = (session?.user as { role?: string })?.role || 'member';
 
+  // Pastor Incubator: admins always; others need a grant (asked once).
+  const [incubatorGranted, setIncubatorGranted] = React.useState(false);
+  const userId = session?.user?.id;
+  React.useEffect(() => {
+    if (!userId || rawRole === 'admin') return;
+    fetch('/api/me')
+      .then((r) => (r.ok ? r.json() : null))
+      .then((me) => setIncubatorGranted(!!me?.incubatorAccess))
+      .catch(() => {});
+  }, [userId, rawRole]);
+  const canOpenIncubator = rawRole === 'admin' || incubatorGranted;
+
   const navItems: { href: string; icon: typeof LayoutDashboard; label: string; testId: string; roles?: string[] }[] = [
     {
       href: '/dashboard',
@@ -126,7 +138,7 @@ export function Sidebar() {
         <button
           className="mobile-menu-btn"
           onClick={() => setMobileOpen(true)}
-          aria-label="Open menu"
+          aria-label={t('nav.openMenu')}
         >
           <Menu size={24} />
         </button>
@@ -160,7 +172,7 @@ export function Sidebar() {
         <button
           className="mobile-close-btn"
           onClick={() => setMobileOpen(false)}
-          aria-label="Close menu"
+          aria-label={t('nav.closeMenu')}
         >
           <X size={20} />
         </button>
@@ -171,7 +183,10 @@ export function Sidebar() {
         </div>
 
         <nav className="sidebar-nav">
-          {navItems.filter((item) => !item.roles || item.roles.includes(rawRole)).map((item) => {
+          {navItems
+            .filter((item) => !item.roles || item.roles.includes(rawRole))
+            .filter((item) => item.href !== '/incubator' || canOpenIncubator)
+            .map((item) => {
             const Icon = item.icon;
             return (
               <Link

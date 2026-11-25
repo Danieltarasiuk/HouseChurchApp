@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { sql } from '@/lib/db';
+import { todayInChurchTz } from '@/lib/churchTime';
+import { ageOn } from '@/lib/directory';
 import { requireViewer, leaderHcScope, LEADER_ROLES } from '@/lib/authz';
 import {
   getPcoSyncUserId,
@@ -9,15 +11,12 @@ import {
   PCO_ERROR_MESSAGES,
 } from '@/lib/pco';
 
+/** Under 18 today in the church's calendar (not the server's UTC date). */
 function isMinor(dob: unknown): boolean {
   if (!dob) return false;
-  const iso = dob instanceof Date ? dob.toISOString() : String(dob);
-  const birth = new Date(iso.split('T')[0] + 'T00:00:00');
-  if (isNaN(birth.getTime())) return false;
-  const today = new Date();
-  let age = today.getFullYear() - birth.getFullYear();
-  const m = today.getMonth() - birth.getMonth();
-  if (m < 0 || (m === 0 && today.getDate() < birth.getDate())) age--;
+  const iso = (dob instanceof Date ? dob.toISOString() : String(dob)).slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(iso)) return false;
+  const age = ageOn(iso, todayInChurchTz());
   return age >= 0 && age < 18;
 }
 
@@ -39,8 +38,8 @@ export async function GET(req: NextRequest) {
   }
 
   try {
-    // Pastors have no PCO connection of their own; use the connected admin's.
-    const tokenUserId = viewer.role === 'admin' ? viewer.userId : await getPcoSyncUserId();
+    // The church's Planning Center connection (the one the sync uses).
+    const tokenUserId = await getPcoSyncUserId();
     if (!tokenUserId) {
       return NextResponse.json({ error: PCO_ERROR_MESSAGES.not_connected, reason: 'not_connected' }, { status: 400 });
     }
@@ -86,7 +85,10 @@ export async function GET(req: NextRequest) {
           { status: 400 }
         );
       }
-      return NextResponse.json({ error: error.message }, { status: error.status === 404 ? 404 : 502 });
+      return NextResponse.json(
+        { error: error.message, reason: error.status === 404 ? 'event_not_found' : 'pco_unavailable' },
+        { status: error.status === 404 ? 404 : 502 }
+      );
     }
     console.error('PCO check-ins error:', error);
     return NextResponse.json({ error: 'Failed to load check-ins' }, { status: 500 });

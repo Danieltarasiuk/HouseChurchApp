@@ -4,8 +4,9 @@ import { useState, useEffect, useMemo } from 'react';
 import dynamic from 'next/dynamic';
 import { useSession } from 'next-auth/react';
 import { useLang } from '@/context/LangContext';
+import { genderLabel } from '@/lib/formatDate';
 import { Map as MapIcon } from 'lucide-react';
-import { getHCColor } from '@/lib/map-utils';
+import { getHCColor, escapeHtml } from '@/lib/map-utils';
 import type { MapMarker } from '@/lib/map-utils';
 import { birthdayMD, birthdayKeyMD, formatBirthdayMD, isMinorRow } from '@/lib/memberDisplay';
 import { MemberDetailPanel } from '@/components/MemberDetailPanel';
@@ -204,14 +205,12 @@ export default function MembersPage() {
           lng: m.longitude!,
           type: 'member' as const,
           color: m.house_church_id ? getHCColor(m.house_church_id, allHCIds) : '#9CA3AF',
-          tooltipHtml: `<strong>${m.first_name} ${m.last_name}</strong><br/>${addr || '—'}`,
+          tooltipHtml: `<strong>${escapeHtml(`${m.first_name} ${m.last_name}`)}</strong><br/>${escapeHtml(addr || '—')}`,
         };
       });
   }, [filtered, allHCIds]);
 
-  const emptyMsg = language === 'es'
-    ? 'No hay datos de ubicación. Sincroniza desde Planning Center para importar direcciones.'
-    : 'No location data available. Sync from Planning Center to import addresses.';
+  const emptyMsg = t('map.noLocationsSync');
 
   return (
     <div className="members-page">
@@ -315,12 +314,12 @@ export default function MembersPage() {
                               </span>
                             )}
                             {redFlags[member.id] > 0 && (
-                              <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: '#ef4444', display: 'inline-block', flexShrink: 0 }} title="Red flag" />
+                              <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: '#ef4444', display: 'inline-block', flexShrink: 0 }} title={t('pastoral.redFlag')} />
                             )}
                           </span>
                         </td>
                         <td>{member.house_church_name || '—'}</td>
-                        <td>{member.gender || '—'}</td>
+                        <td>{genderLabel(t, member.gender)}</td>
                         <td>{age !== null ? age : '—'}</td>
                         <td>{bday}</td>
                         <td className="col-address">

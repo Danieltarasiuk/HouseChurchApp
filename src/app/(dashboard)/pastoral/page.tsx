@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useSession } from 'next-auth/react';
 import { useLang } from '@/context/LangContext';
+import { localeFor } from '@/lib/formatDate';
 import { NoAccess } from '@/components/NoAccess';
 import { todayInChurchTz } from '@/lib/churchTime';
 import { PASTORAL_TOPICS } from '@/data/pastoral-topics';
@@ -79,19 +80,13 @@ function parseDate(d: string): Date {
 function formatDate(dateStr: string | null, lang: string): string {
   if (!dateStr) return '';
   const clean = dateStr.split('T')[0]; // guard against ISO strings
-  return parseDate(clean).toLocaleDateString(
-    lang === 'es' ? 'es-ES' : 'en-US',
-    { month: 'short', day: 'numeric' }
-  );
+  return parseDate(clean).toLocaleDateString(localeFor(lang), { month: 'short', day: 'numeric' });
 }
 
 function formatDateTime(dateStr: string | null, lang: string): string {
   if (!dateStr) return '';
   const d = new Date(dateStr);
-  return d.toLocaleDateString(
-    lang === 'es' ? 'es-ES' : 'en-US',
-    { month: 'short', day: 'numeric', year: 'numeric' }
-  );
+  return d.toLocaleDateString(localeFor(lang), { month: 'short', day: 'numeric', year: 'numeric' });
 }
 
 function daysSince(dateStr: string | null): number {
@@ -451,8 +446,8 @@ export default function PastoralPage() {
                     <tr key={m.id} className="pastoral-row" onClick={() => openPanel(m)}>
                       <td className="pastoral-name-col">
                         <span>{m.name}</span>
-                        {m.red_flag_count > 0 && <span className="pastoral-dot-red" title="Red flag" />}
-                        {m.yellow_flag_count > 0 && <span className="pastoral-dot-yellow" title="Yellow flag" />}
+                        {m.red_flag_count > 0 && <span className="pastoral-dot-red" title={t('pastoral.redFlag')} />}
+                        {m.yellow_flag_count > 0 && <span className="pastoral-dot-yellow" title={t('pastoral.yellowFlag')} />}
                       </td>
                       <td style={{ background: cellColor(m.last_contacted, hasAny) }}>
                         {m.last_contacted ? formatDate(m.last_contacted, lang) : t('pastoral.neverMet')}
